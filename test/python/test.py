@@ -53,6 +53,30 @@ class Post(DialectORM):
     def validateContent(self, x):
         return 0 < len(x)
 
+class PostMeta(DialectORM):
+    table = 'postmeta'
+    pk = 'id'
+    fields = ['id', 'status', 'type', 'post_id']
+    relationships = {}
+
+    def typeId(self, x):
+        return int(x) if x is not None else 0
+
+    def typePostId(self, x):
+        return int(x) if x is not None else 0
+
+    def typeStatus(self, x):
+        return str(x).lower()
+
+    def typeType(self, x):
+        return str(x).lower()
+
+    def validateStatus(self, x):
+        return x in ['approved', 'published', 'suspended']
+
+    def validateType(self, x):
+        return x in ['article', 'tutorial', 'general']
+
 class Comment(DialectORM):
     table = 'comments'
     pk = 'id'
@@ -87,8 +111,12 @@ class User(DialectORM):
         return 0 < len(x)
 
 Post.relationships = {
+    'meta' : ['hasOne', PostMeta, 'post_id'],
     'comments' : ['hasMany', Comment, 'post_id'],
-    'users' : ['belongsToMany', User, 'user_id', 'post_id', 'user_post']
+    'authors' : ['belongsToMany', User, 'user_id', 'post_id', 'user_post']
+}
+PostMeta.relationships = {
+    'post' : ['belongsTo', Post, 'post_id']
 }
 Comment.relationships = {
     'post' : ['belongsTo', Post, 'post_id']
@@ -109,25 +137,26 @@ def test():
     output('Posts: ' + str(Post.count()))
     output('Users: ' + str(User.count()))
 
-    #post = Post({'content':'a py post..'})
-    #post.setComments([Comment({'content':'a py comment..'})])
-    #post.setComments([Comment({'content':'another py comment..'})], {'merge':True})
-    #post.setUsers([User({'name':'py user'})])
+    #post = Post({'content':'another py post..'})
+    #post.setComments([Comment({'content':'still another py comment..'})])
+    #post.setComments([Comment({'content':'one more py comment..'})], {'merge':True})
+    #post.setAuthors([User({'name':'another py user'})])
+    #post.setMeta(PostMeta({'status':'approved','type':'article'}))
     #post.save({'withRelated':True})
 
     #post2 = Post({'content':'py post to delete..'})
     #post2.save()
 
     print('Posts:')
-    output(Post.getAll({'withRelated' : ['comments', 'users']}))
+    output(Post.getAll({'withRelated' : ['meta', 'comments', 'authors']}))
 
     #post2.delete()
 
     print('Posts:')
     output(Post.getAll({
-        'withRelated' : ['comments', 'users'],
+        'withRelated' : ['meta', 'comments', 'authors'],
         'related' : {
-            'comments' : {'conditions':{'content':{'like':'py'}}} # eager relationship loading with extra conditions, see `Dialect` lib on how to define conditions
+            'comments' : {'limit':1} # eager relationship loading with extra conditions, see `Dialect` lib on how to define conditions
         }
     }))
 

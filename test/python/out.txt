@@ -1,5 +1,5 @@
-Posts: 3
-Users: 3
+Posts: 6
+Users: 6
 Posts:
 [
     {
@@ -17,7 +17,7 @@ Posts:
                 "post_id": 8
             }
         ],
-        "users": [
+        "authors": [
             {
                 "id": 3,
                 "name": "php user"
@@ -39,7 +39,7 @@ Posts:
                 "post_id": 10
             }
         ],
-        "users": [
+        "authors": [
             {
                 "id": 4,
                 "name": "py user"
@@ -61,10 +61,94 @@ Posts:
                 "post_id": 12
             }
         ],
-        "users": [
+        "authors": [
             {
                 "id": 5,
                 "name": "js user"
+            }
+        ]
+    },
+    {
+        "id": 13,
+        "content": "another php post..",
+        "meta": {
+            "id": 1,
+            "status": "approved",
+            "type": "article",
+            "post_id": 13
+        },
+        "comments": [
+            {
+                "id": 16,
+                "content": "still another php comment..",
+                "post_id": 13
+            },
+            {
+                "id": 17,
+                "content": "one more php comment..",
+                "post_id": 13
+            }
+        ],
+        "authors": [
+            {
+                "id": 6,
+                "name": "another php user"
+            }
+        ]
+    },
+    {
+        "id": 14,
+        "content": "another py post..",
+        "meta": {
+            "id": 2,
+            "status": "approved",
+            "type": "article",
+            "post_id": 14
+        },
+        "comments": [
+            {
+                "id": 18,
+                "content": "still another py comment..",
+                "post_id": 14
+            },
+            {
+                "id": 19,
+                "content": "one more py comment..",
+                "post_id": 14
+            }
+        ],
+        "authors": [
+            {
+                "id": 7,
+                "name": "another py user"
+            }
+        ]
+    },
+    {
+        "id": 15,
+        "content": "another js post..",
+        "meta": {
+            "id": 3,
+            "status": "approved",
+            "type": "article",
+            "post_id": 15
+        },
+        "comments": [
+            {
+                "id": 20,
+                "content": "still another js comment..",
+                "post_id": 15
+            },
+            {
+                "id": 21,
+                "content": "one more js comment..",
+                "post_id": 15
+            }
+        ],
+        "authors": [
+            {
+                "id": 8,
+                "name": "another js user"
             }
         ]
     }
@@ -74,7 +158,14 @@ Posts:
     {
         "id": 8,
         "content": "a php post..",
-        "users": [
+        "comments": [
+            {
+                "id": 10,
+                "content": "a php comment..",
+                "post_id": 8
+            }
+        ],
+        "authors": [
             {
                 "id": 3,
                 "name": "php user"
@@ -89,14 +180,9 @@ Posts:
                 "id": 12,
                 "content": "a py comment..",
                 "post_id": 10
-            },
-            {
-                "id": 13,
-                "content": "another py comment..",
-                "post_id": 10
             }
         ],
-        "users": [
+        "authors": [
             {
                 "id": 4,
                 "name": "py user"
@@ -106,10 +192,86 @@ Posts:
     {
         "id": 12,
         "content": "a js post..",
-        "users": [
+        "comments": [
+            {
+                "id": 14,
+                "content": "a js comment..",
+                "post_id": 12
+            }
+        ],
+        "authors": [
             {
                 "id": 5,
                 "name": "js user"
+            }
+        ]
+    },
+    {
+        "id": 13,
+        "content": "another php post..",
+        "meta": {
+            "id": 1,
+            "status": "approved",
+            "type": "article",
+            "post_id": 13
+        },
+        "comments": [
+            {
+                "id": 16,
+                "content": "still another php comment..",
+                "post_id": 13
+            }
+        ],
+        "authors": [
+            {
+                "id": 6,
+                "name": "another php user"
+            }
+        ]
+    },
+    {
+        "id": 14,
+        "content": "another py post..",
+        "meta": {
+            "id": 2,
+            "status": "approved",
+            "type": "article",
+            "post_id": 14
+        },
+        "comments": [
+            {
+                "id": 18,
+                "content": "still another py comment..",
+                "post_id": 14
+            }
+        ],
+        "authors": [
+            {
+                "id": 7,
+                "name": "another py user"
+            }
+        ]
+    },
+    {
+        "id": 15,
+        "content": "another js post..",
+        "meta": {
+            "id": 3,
+            "status": "approved",
+            "type": "article",
+            "post_id": 15
+        },
+        "comments": [
+            {
+                "id": 20,
+                "content": "still another js comment..",
+                "post_id": 15
+            }
+        ],
+        "authors": [
+            {
+                "id": 8,
+                "name": "another js user"
             }
         ]
     }

@@ -54,8 +54,9 @@ class Post extends DialectORM
     public static $pk = 'id';
     public static $fields = ['id', 'content'];
     public static $relationships = [
+        'meta' => ['hasOne', 'PostMeta', 'post_id'],
         'comments' => ['hasMany', 'Comment', 'post_id'],
-        'users' => ['belongsToMany', 'User', 'user_id', 'post_id', 'user_post'],
+        'authors' => ['belongsToMany', 'User', 'user_id', 'post_id', 'user_post'],
     ];
 
     public function typeId($x)
@@ -71,6 +72,46 @@ class Post extends DialectORM
     public function validateContent($x)
     {
         return 0 < strlen($x);
+    }
+}
+
+class PostMeta extends DialectORM
+{
+    public static $table = 'postmeta';
+    public static $pk = 'id';
+    public static $fields = ['id', 'status', 'type', 'post_id'];
+    public static $relationships = [
+        'post' => ['belongsTo', 'Post', 'post_id']
+    ];
+
+    public function typeId($x)
+    {
+        return (int)$x;
+    }
+
+    public function typePostId($x)
+    {
+        return (int)$x;
+    }
+
+    public function typeStatus($x)
+    {
+        return strtolower((string)$x);
+    }
+
+    public function typeType($x)
+    {
+        return strtolower((string)$x);
+    }
+
+    public function validateStatus($x)
+    {
+        return in_array($x, ['approved', 'published', 'suspended']);
+    }
+
+    public function validateType($x)
+    {
+        return in_array($x, ['article', 'tutorial', 'general']);
     }
 }
 
@@ -136,22 +177,22 @@ $post = new Post(['content'=>'another post..']);
 $post->setComments([new Comment(['content'=>'another comment..'])]);
 $post->setComments([new Comment(['content'=>'still another comment..'])], ['merge'=>true]);
 
-$post->setUsers([new User(['name'=>'bar'])], ['merge'=>true]);
+$post->setAuthors([new User(['name'=>'bar'])], ['merge'=>true]);
 
 // alternative
 //$user = new User(['name'=>'bar']);
 //$user->save();
-//$post->assocUsers([$user]);
+//$post->assocAuthors([$user]);
 
 // to simply dissociate from a many-to-many relationship
-//$post->dissocUsers([$user]);
+//$post->dissocAuthors([$user]);
 
-$post->save(['withRelated'=>['comments','users']]);
+$post->save(['withRelated'=>['comments','authors']]);
 
 //$post->delete(['withRelated'=>true]);
 
 $count = Post::count(['conditions'=>[/*..*/]]);
-$posts = Post::getAll(['withRelated'=>['comments','users']]); // eager load of relationships, no N+1 problem
+$posts = Post::getAll(['withRelated'=>['comments','authors']]); // eager load of relationships, no N+1 problem
 
 //foreach(Post::getAll() as $post) $post->getComments(); // lazy load of relationships, N+1 problem
 ```

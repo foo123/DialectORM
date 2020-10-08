@@ -19,8 +19,9 @@ class Post extends DialectORM
     public static $pk = 'id';
     public static $fields = ['id', 'content'];
     public static $relationships = [
+        'meta' => ['hasOne', 'PostMeta', 'post_id'],
         'comments' => ['hasMany', 'Comment', 'post_id'],
-        'users' => ['belongsToMany', 'User', 'user_id', 'post_id', 'user_post'],
+        'authors' => ['belongsToMany', 'User', 'user_id', 'post_id', 'user_post'],
     ];
 
     public function typeId($x)
@@ -36,6 +37,46 @@ class Post extends DialectORM
     public function validateContent($x)
     {
         return 0 < strlen($x);
+    }
+}
+
+class PostMeta extends DialectORM
+{
+    public static $table = 'postmeta';
+    public static $pk = 'id';
+    public static $fields = ['id', 'status', 'type', 'post_id'];
+    public static $relationships = [
+        'post' => ['belongsTo', 'Post', 'post_id']
+    ];
+
+    public function typeId($x)
+    {
+        return (int)$x;
+    }
+
+    public function typePostId($x)
+    {
+        return (int)$x;
+    }
+
+    public function typeStatus($x)
+    {
+        return strtolower((string)$x);
+    }
+
+    public function typeType($x)
+    {
+        return strtolower((string)$x);
+    }
+
+    public function validateStatus($x)
+    {
+        return in_array($x, ['approved', 'published', 'suspended']);
+    }
+
+    public function validateType($x)
+    {
+        return in_array($x, ['article', 'tutorial', 'general']);
     }
 }
 
@@ -96,11 +137,11 @@ class User extends DialectORM
 
 function output($data)
 {
-    if ( is_array($data) )
+    if (is_array($data))
     {
         echo json_encode(array_map(function($d){return $d->toArray(true);}, $data), JSON_PRETTY_PRINT) . PHP_EOL;
     }
-    elseif( $data instanceof DialectORM )
+    elseif ($data instanceof DialectORM)
     {
         echo json_encode($data->toArray(true), JSON_PRETTY_PRINT) . PHP_EOL;
     }
@@ -115,25 +156,26 @@ function test()
     output('Posts: ' . (string)Post::count());
     output('Users: ' . (string)User::count());
 
-    /*$post = new Post(['content'=>'a php post..']);
-    $post->setComments([new Comment(['content'=>'a php comment..'])]);
-    $post->setComments([new Comment(['content'=>'another php comment..'])], ['merge'=>true]);
-    $post->setUsers([new User(['name'=>'php user'])]);
-    $post->save(['withRelated'=>true]);
+    /*$post = new Post(['content'=>'another php post..']);
+    $post->setComments([new Comment(['content'=>'still another php comment..'])]);
+    $post->setComments([new Comment(['content'=>'one more php comment..'])], ['merge'=>true]);
+    $post->setAuthors([new User(['name'=>'another php user'])]);
+    $post->setMeta(new PostMeta(['status'=>'approved','type'=>'article']));
+    $post->save(['withRelated'=>true]);*/
 
-    $post2 = new Post(['content'=>'php post to delete..']);
+    /*$post2 = new Post(['content'=>'php post to delete..']);
     $post2->save();*/
 
     print('Posts:');
-    output(Post::getAll(['withRelated' => ['comments', 'users']]));
+    output(Post::getAll(['withRelated' => ['meta', 'comments', 'authors']]));
 
     //$post2->delete();
 
     print('Posts:');
     output(Post::getAll([
-        'withRelated' => ['comments', 'users'],
+        'withRelated' => ['meta', 'comments', 'authors'],
         'related' => [
-            'comments' => ['conditions'=>['content'=>['like'=>'php']]] // eager relationship loading with extra conditions, see `Dialect` lib on how to define conditions
+            'comments' => ['limit'=>1] // eager relationship loading with extra conditions, see `Dialect` lib on how to define conditions
         ]
     ]));
 }

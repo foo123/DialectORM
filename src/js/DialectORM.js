@@ -145,15 +145,14 @@ class DialectORMRelation
 
     constructor(type, a, b, kb, ka=null, ab=null)
     {
-        var self = this;
-        self.type = String(type).toLowerCase();
-        self.a = a;
-        self.b = b;
-        self.keya = ka || null;
-        self.keyb = kb;
-        self.ab = ab || null;
-        self.field = null;
-        self.data = false;
+        this.type = String(type).toLowerCase();
+        this.a = a;
+        this.b = b;
+        this.keya = ka || null;
+        this.keyb = kb;
+        this.ab = ab || null;
+        this.field = null;
+        this.data = false;
     }
 }
 
@@ -166,7 +165,6 @@ class DialectORM
 
     static pluck(entities, field='')
     {
-
         if (''===field)
             return entities.map(entity => entity.getPk());
         else
@@ -291,7 +289,7 @@ class DialectORM
         let klass = this, pk = klass.pk, field, entities,
             retSingle, sql, i, ids, f, rel, type, cls,
             fk, rpk, fids, conditions, rentities, mapp, relmapp, e, re,
-            fkv, kv, k1, k2, d, ab, pk2, reljoin;
+            fkv, kv, k1, k2, d, ab, pk2, reljoin, subquery, selects, ofield;
         options = merge({
             'conditions': {},
             'order': {},
@@ -352,10 +350,8 @@ class DialectORM
                 if ('hasone'===type)
                 {
                     fk = rel[2];
-                    rpk = cls.pk;
-                    fids = klass.pluck(entities, fk);
                     conditions = {};
-                    conditions[rpk] = {'in':fids};
+                    conditions[fk] = {'in':ids};
                     if (has(options['related'], field) && has(options['related'][field], 'conditions'))
                     {
                         conditions = merge({}, options['related'][field]['conditions'], conditions);
@@ -366,28 +362,67 @@ class DialectORM
                     mapp = {};
                     for (re = 0; re < rentities.length; re++)
                     {
-                        mapp[String(rentities[re].getPk())] = rentities[re];
+                        mapp[String(rentities[re].get(fk))] = rentities[re];
                     }
                     for (e = 0; e < entities.length; e++)
                     {
-                        fkv = String(entities[e].get(fk));
-                        entities[e].set(field, has(mapp, fkv) ? mapp[fkv] : null);
+                        kv = String(entities[e].getPk());
+                        entities[e].set(field, has(mapp, kv) ? mapp[kv] : null);
                     }
                 }
                 else if ('hasmany'===type)
                 {
                     fk = rel[2];
-                    conditions = {};
-                    conditions[fk] = {'in':ids};
-                    if (has(options['related'], field) && has(options['related'][field], 'conditions'))
+                    if (has(options['related'], field) && has(options['related'][field], 'limit'))
                     {
-                        conditions = merge({}, options['related'][field]['conditions'], conditions);
+                        sql = DialectORM.getSQL();
+                        selects = [];
+                        for (i = 0; i < ids.length; i++)
+                        {
+                            conditions = {};
+                            conditions[fk] = ids[i];
+                            if (has(options['related'], field) && has(options['related'][field], 'conditions'))
+                                conditions = merge({}, options['related'][field]['conditions'], conditions);
+
+                            subquery = sql.subquery().Select(
+                                '*'
+                            ).From(
+                                DialectORM.tbl(cls.table)
+                            ).Where(
+                                conditions
+                            );
+                            if (!empty(options['related'][field]['order']))
+                            {
+                                for (ofield in options['related'][field]['order'])
+                                    if (has(options['related'][field]['order'], ofield))
+                                        subquery.Order(ofield, options['related'][field]['order'][ofield]);
+                            }
+
+                            if (is_array(options['related'][field]['limit']))
+                                subquery.Limit(options['related'][field]['limit'][0], 1<options['related'][field]['limit'].length ? options['related'][field]['limit'][1] : 0);
+                            else
+                                subquery.Limit(options['related'][field]['limit'], 0);
+
+                            selects.push(subquery.sql());
+                        }
+
+                        rentities = await DialectORM.getDB().get(sql.Union(selects, false).sql());
+                        for (i = 0; i < rentities.length; i++)
+                            rentities[i] = new cls(rentities[i]);
                     }
-                    rentities = await cls.getAll({
-                        'conditions' : conditions,
-                        'order' : has(options['related'], field) && has(options['related'][field], 'order') ? options['related'][field]['order'] : {},
-                        'limit' : has(options['related'], field) && has(options['related'][field], 'limit') ? options['related'][field]['limit'] : null
-                    });
+                    else
+                    {
+                        conditions = {};
+                        conditions[fk] = {'in':ids};
+                        if (has(options['related'], field) && has(options['related'][field], 'conditions'))
+                        {
+                            conditions = merge({}, options['related'][field]['conditions'], conditions);
+                        }
+                        rentities = await cls.getAll({
+                            'conditions' : conditions,
+                            'order' : has(options['related'], field) && has(options['related'][field], 'order') ? options['related'][field]['order'] : {}
+                        });
+                    }
                     mapp = {};
                     for (re = 0; re < rentities.length; re++)
                     {
@@ -443,17 +478,57 @@ class DialectORM
                             conditions
                         ).sql()
                     );
-                    conditions = {};
-                    conditions[rpk] = {'in':reljoin.map(d => d[fk])};
-                    if (has(options['related'], field) && has(options['related'][field], 'conditions'))
+                    fids = reljoin.map(d => d[fk]);
+                    if (!empty(fids) && has(options['related'], field) && has(options['related'][field], 'limit'))
                     {
-                        conditions = merge({}, options['related'][field]['conditions'], conditions);
+                        sql = DialectORM.getSQL();
+                        selects = [];
+                        for (i = 0; i < fids.length; i++)
+                        {
+                            conditions = {};
+                            conditions[rpk] = fids[i];
+                            if (has(options['related'], field) && has(options['related'][field], 'conditions'))
+                                conditions = merge({}, options['related'][field]['conditions'], conditions);
+
+                            subquery = sql.subquery().Select(
+                                '*'
+                            ).From(
+                                DialectORM.tbl(cls.table)
+                            ).Where(
+                                conditions
+                            );
+                            if (!empty(options['related'][field]['order']))
+                            {
+                                for (ofield in options['related'][field]['order'])
+                                    if (has(options['related'][field]['order'], ofield))
+                                        subquery.Order(ofield, options['related'][field]['order'][ofield]);
+                            }
+
+                            if (is_array(options['related'][field]['limit']))
+                                subquery.Limit(options['related'][field]['limit'][0], 1<options['related'][field]['limit'].length ? options['related'][field]['limit'][1] : 0);
+                            else
+                                subquery.Limit(options['related'][field]['limit'], 0);
+
+                            selects.push(subquery.sql());
+                        }
+
+                        rentities = await DialectORM.getDB().get(sql.Union(selects, false).sql());
+                        for (i = 0; i < rentities.length; i++)
+                            rentities[i] = new cls(rentities[i]);
                     }
-                    rentities = await cls.getAll({
-                        'conditions' : conditions,
-                        'order' : has(options['related'], field) && has(options['related'][field], 'order') ? options['related'][field]['order'] : {},
-                        'limit' : has(options['related'], field) && has(options['related'][field], 'limit') ? options['related'][field]['limit'] : null
-                    });
+                    else
+                    {
+                        conditions = {};
+                        conditions[rpk] = {'in':fids};
+                        if (has(options['related'], field) && has(options['related'][field], 'conditions'))
+                        {
+                            conditions = merge({}, options['related'][field]['conditions'], conditions);
+                        }
+                        rentities = await cls.getAll({
+                            'conditions' : conditions,
+                            'order' : has(options['related'], field) && has(options['related'][field], 'order') ? options['related'][field]['order'] : {}
+                        });
+                    }
                     mapp = {};
                     for (re = 0; re < rentities.length; re++)
                     {
@@ -497,7 +572,7 @@ class DialectORM
                 rel = klass.relationships[field];
                 type = rel[0].toLowerCase();
                 cls = rel[1];
-                if ('hasone'===type || 'belongsto'===type)
+                if ('belongsto'===type)
                 {
                     // bypass
                 }
@@ -558,6 +633,12 @@ class DialectORM
         res = res['affectedRows'];
         return res;
     }
+
+    _sql = null;
+    relations = null;
+    data = null;
+    isDirty = null;
+    proxy = null;
 
     constructor(data={})
     {
@@ -643,13 +724,58 @@ class DialectORM
             if (false === rel.data)
             {
                 return new Promise((resolve, reject) => {
-                    if ('hasone'===rel.type)
+                    if ('hasone'===rel.type || 'hasmany'===rel.type)
                     {
                         cls = rel.b;
-                        cls.getByPk(this.get(rel.keyb), null).then(res => {
-                            rel.data = res;
-                            resolve(empty(rel.data) ? default_ : rel.data);
-                        });
+                        fk = rel.keyb;
+                        if ('hasone'===rel.type)
+                        {
+                            conditions = {};
+                            conditions[fk] = this.getPk();
+                            cls.getAll({
+                                'conditions' : conditions,
+                                'single' : true
+                            }).then(res => {
+                                rel.data = res;
+                                if (!empty(rel.data))
+                                {
+                                    mirrorRel = this._getMirrorRel(rel);
+                                    if (mirrorRel)
+                                    {
+                                        entity = rel.data;
+                                        //entity.set(rel.key, this.getPk());
+                                        entity.set(mirrorRel.field, this.proxy, {'recurse':false});
+                                    }
+                                }
+                                resolve(empty(rel.data) ? default_ : rel.data);
+                            });
+                        }
+                        else
+                        {
+                            conditions = merge({}, options['conditions']);
+                            conditions[fk] = this.getPk();
+                            cls.getAll({
+                                'conditions' : conditions,
+                                'order' : options['order'],
+                                'limit' : options['limit']
+                            }).then(res => {
+                                rel.data = res;
+                                if (!empty(rel.data))
+                                {
+                                    mirrorRel = this._getMirrorRel(rel);
+                                    if (mirrorRel)
+                                    {
+                                        for (i = 0; i < rel.data.length; i++)
+                                        {
+                                            entity = rel.data[i];
+                                            //entity.set(rel.key, this.getPk());
+                                            entity.set(mirrorRel.field, this.proxy, {'recurse':false});
+                                        }
+                                    }
+                                }
+                                resolve(empty(rel.data) ? default_ : rel.data);
+                            });
+                        }
                     }
                     else if ('belongsto'===rel.type)
                     {
@@ -662,35 +788,7 @@ class DialectORM
                                 if (mirrorRel)
                                 {
                                     entity = rel.data;
-                                    entity.set(mirrorRel.field, [this.proxy], {'recurse':false,'merge':true});
-                                }
-                            }
-                            resolve(empty(rel.data) ? default_ : rel.data);
-                        });
-                    }
-                    else if ('hasmany'===rel.type)
-                    {
-                        cls = rel.b;
-                        fk = rel.keyb;
-                        conditions = merge({}, options['conditions']);
-                        conditions[fk] = this.getPk();
-                        cls.getAll({
-                            'conditions' : conditions,
-                            'order' : options['order'],
-                            'limit' : options['limit']
-                        }).then(res => {
-                            rel.data = res;
-                            if (!empty(rel.data))
-                            {
-                                mirrorRel = this._getMirrorRel(rel);
-                                if (mirrorRel)
-                                {
-                                    for (i = 0; i < rel.data.length; i++)
-                                    {
-                                        entity = rel.data[i];
-                                        //entity.set(rel.key, this.getPk());
-                                        entity.set(mirrorRel.field, this.proxy, {'recurse':false});
-                                    }
+                                    entity.set(mirrorRel.field, 'hasone'===mirrorRel.type ? this.proxy : [this.proxy], {'recurse':false,'merge':true});
                                 }
                             }
                             resolve(empty(rel.data) ? default_ : rel.data);
@@ -708,7 +806,7 @@ class DialectORM
                         for (i = 0; i < fields.length; i++) fields[i] = tbl+'.'+fields[i]+' AS '+fields[i];
                         conditions = merge({}, options['conditions']);
                         conditions[fkthis] = this.getPk();
-                        this.sql().Select(
+                        this.sql().clear().Select(
                             fields
                         ).From(
                             tbl
@@ -862,12 +960,26 @@ class DialectORM
                     if ('belongsto'===mirrorRel.type)
                     {
                         pk = this.getPk();
-                        for (i = 0; i < rel.data.length; i++)
+                        if (is_array(rel.data))
                         {
-                            entity = rel.data[i];
+                            for (i = 0; i < rel.data.length; i++)
+                            {
+                                entity = rel.data[i];
+                                entity.set(rel.keyb, pk);
+                                entity.set(mirrorRel.field, this.proxy, {'recurse':false});
+                            }
+                        }
+                        else
+                        {
+                            entity = rel.data;
                             entity.set(rel.keyb, pk);
                             entity.set(mirrorRel.field, this.proxy, {'recurse':false});
                         }
+                    }
+                    else if ('hasone'===mirrorRel.type)
+                    {
+                        entity = rel.data;
+                        entity.set(mirrorRel.field, this.proxy, {'recurse':false});
                     }
                     else if ('hasmany'===mirrorRel.type)
                     {
@@ -884,7 +996,7 @@ class DialectORM
     _getMirrorRel(rel)
     {
         let thisclass, cls, f, r;
-        if ('hasmany'===rel.type)
+        if ('hasone'===rel.type || 'hasmany'===rel.type)
         {
             thisclass = this.constructor;
             cls = rel.b;
@@ -904,8 +1016,8 @@ class DialectORM
             {
                 if (!has(cls.relationships, f)) continue;
                 r = cls.relationships[f];
-                if ('hasmany'===r[0].toLowerCase() && thisclass===r[1] && rel.keyb===r[2])
-                    return {'type':'hasmany', 'field':f};
+                if (('hasone'===r[0].toLowerCase() || 'hasmany'===r[0].toLowerCase()) && thisclass===r[1] && rel.keyb===r[2])
+                    return {'type':r[0].toLowerCase(), 'field':f};
             }
         }
 
@@ -919,9 +1031,9 @@ class DialectORM
         return !has(klass.relationships, field) && (null != this.data) && has(this.data, field);
     }
 
-    async assoc(field, entities)
+    async assoc(field, entity)
     {
-        let klass = this.constructor, id, rel, type, cls, jtbl, values, i, entity, eid, conditions, notexists;
+        let klass = this.constructor, id, rel, type, cls, jtbl, values, i, ent, eid, conditions, notexists;
         field = String(field);
         if (!has(klass.relationships, field))
             throw new DialectORM.Exception('Undefined Field: "'+field+'" in ' + klass.name + ' via assoc()');
@@ -935,17 +1047,17 @@ class DialectORM
             {
                 jtbl = TnyORM.tbl(rel[4]);
                 values = [];
-                for (i = 0; i < entities.length; i++)
+                for (i = 0; i < entity.length; i++)
                 {
-                    entity = entities[i];
-                    if (!(entity instanceof cls)) continue;
-                    eid = entity.getPk();
+                    ent = entity[i];
+                    if (!(ent instanceof cls)) continue;
+                    eid = ent.getPk();
                     if (empty(eid)) continue;
                     conditions = {};
                     conditions[rel[2]] = eid;
                     conditions[rel[3]] = id;
                     notexists = empty(await this.db().get(
-                        this.sql().Select(
+                        this.sql().clear().Select(
                             '*'
                         ).From(
                             jtbl
@@ -959,7 +1071,7 @@ class DialectORM
                 if (!empty(values))
                 {
                     await this.db().query(
-                        this.sql().Insert(
+                        this.sql().clear().Insert(
                             jtbl, [rel[2], rel[3]]
                         ).Values(
                             values
@@ -969,29 +1081,30 @@ class DialectORM
             }
             else if ('belongsto'===type)
             {
-                if (entities instanceof cls)
-                    await entities.set(rel[2], id).save();
+                if ( (entity instanceof cls) && !empty(entity.getPk()) )
+                    await this.set(rel[2], entity.getPk()).save();
             }
             else if ('hasone'===type)
             {
-                if ((entities instanceof cls) && !empty(entities.getPk()))
-                    await this.set(rel[2], entities.getPk()).save();
+                if ( entity instanceof cls )
+                    await entity.set(rel[2], id).save();
             }
             else if ('hasmany'===type)
             {
-                for (i = 0; i < entities.length; i++)
+                for (i = 0; i < entity.length; i++)
                 {
-                    entity = entities[i];
-                    if (!(entity instanceof cls)) continue;
-                    await entity.set(rel[2], id).save();
+                    ent = entity[i];
+                    if (!(ent instanceof cls)) continue;
+                    await ent.set(rel[2], id).save();
                 }
             }
         }
+        return this.proxy;
     }
 
-    async dissoc(field, entities)
+    async dissoc(field, entity)
     {
-        let klass = this.constructor, id, rel, type, cls, jtbl, values, i, entity, eid, conditions, notexists;
+        let klass = this.constructor, id, rel, type, cls, jtbl, values, i, ent, eid, conditions, notexists;
         field = String(field);
         if (!has(klass.relationships, field))
             throw new DialectORM.Exception('Undefined Field: "'+field+'" in ' + klass.name + ' via dissoc()');
@@ -1006,11 +1119,11 @@ class DialectORM
             {
                 jtbl = DialectORM.tbl(rel[4]);
                 values = [];
-                for (i = 0; i < entities.length; i++)
+                for (i = 0; i < entity.length; i++)
                 {
-                    entity = entities[i];
-                    if (!(entity instanceof cls)) continue;
-                    eid = entity.getPk();
+                    ent = entity[i];
+                    if (!(ent instanceof cls)) continue;
+                    eid = ent.getPk();
                     if (empty(eid)) continue;
                     values.push(eid);
                 }
@@ -1020,7 +1133,7 @@ class DialectORM
                     conditions[rel[3]] = id;
                     conditions[rel[2]] = {'in':values};
                     await this.db().query(
-                        this.sql().Delete(
+                        this.sql().clear().Delete(
                         ).From(
                             jtbl
                         ).Where(
@@ -1042,6 +1155,7 @@ class DialectORM
                 //pass
             }
         }
+        return this.proxy;
     }
 
     clear()
@@ -1192,7 +1306,7 @@ class DialectORM
             rel = this.relations[field];
             entity = rel.data;
             cls = rel.b;
-            if (has(['belongsto', 'hasone'], rel.type) && (entity instanceof cls))
+            if (has(['belongsto'], rel.type) && (entity instanceof cls))
             {
                 await entity.save();
                 this.set(rel.keyb, entity.getPk());
@@ -1210,7 +1324,7 @@ class DialectORM
                 // update
                 conditions = {};
                 conditions[pk] = id;
-                this.sql().Update(
+                this.sql().clear().Update(
                     DialectORM.tbl(klass.table)
                 ).Set(
                     this.toObj(false, true)
@@ -1221,7 +1335,7 @@ class DialectORM
             else
             {
                 // insert
-                this.sql().Insert(
+                this.sql().clear().Insert(
                     DialectORM.tbl(klass.table), klass.fields
                 ).Values(
                     klass.fields.map(f => has(this.data, f) ? this.data[f] : null)
@@ -1241,7 +1355,7 @@ class DialectORM
         for (i = 0; i < withRelated.length; i++)
         {
             field = String(withRelated[i]);
-            if (!has(this.relations, field) || has(['belongsto', 'hasone'], this.relations[field].type)) continue;
+            if (!has(this.relations, field) || has(['belongsto'], this.relations[field].type)) continue;
             rel = this.relations[field];
             cls = rel.b;
             if (!empty(rel.data))
@@ -1267,6 +1381,11 @@ class DialectORM
                 else
                 {
                     entity = rel.data;
+                    if ('hasone'===rel.type)
+                    {
+                        if (entity instanceof cls)
+                            entity.set(rel.keyb, id);
+                    }
                     if (entity instanceof cls)
                         await entity.save();
                 }
@@ -1288,7 +1407,7 @@ class DialectORM
                         conditions[rel.keyb] = eid;
                         conditions[rel.keya] = id;
                         notexists = empty(await this.db().get(
-                            this.sql().Select(
+                            this.sql().clear().Select(
                                 '*'
                             ).From(
                                 jtbl
@@ -1302,7 +1421,7 @@ class DialectORM
                     if (!empty(values))
                     {
                         await this.db().query(
-                            this.sql().Insert(
+                            this.sql().clear().Insert(
                                 jtbl, [rel.keyb, rel.keya]
                             ).Values(
                                 values
@@ -1390,7 +1509,10 @@ DialectORM.getSQL = function() {
     let db = DialectORM.getDB();
     let sql = new Dialect(db.vendor());
     sql.escape(s => db.escape(s), db.escapeWillQuote());
-    if ('function' === typeof(db['escapeId'])) sql.escapeId(s => db.escapeId(s));
+    if ('function' === typeof(db['escapeId']))
+    {
+        sql.escapeId(s => db.escapeId(s), 'function' === typeof(db['escapeIdWillQuote']) ? db.escapeIdWillQuote() : false);
+    }
     return sql;
 };
 

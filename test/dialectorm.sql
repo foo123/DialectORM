@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Φιλοξενητής: 127.0.0.1
--- Χρόνος δημιουργίας: 18 Σεπ 2020 στις 21:52:45
+-- Χρόνος δημιουργίας: 08 Οκτ 2020 στις 07:14:29
 -- Έκδοση διακομιστή: 10.1.31-MariaDB
 -- Έκδοση PHP: 7.2.3
 
@@ -19,7 +19,7 @@ SET time_zone = "+00:00";
 /*!40101 SET NAMES utf8mb4 */;
 
 --
--- Βάση δεδομένων: `tinyorm`
+-- Βάση δεδομένων: `dialectorm`
 --
 
 -- --------------------------------------------------------
@@ -31,6 +31,19 @@ SET time_zone = "+00:00";
 CREATE TABLE `comments` (
   `id` int(11) NOT NULL,
   `content` text NOT NULL,
+  `post_id` int(11) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+-- --------------------------------------------------------
+
+--
+-- Δομή πίνακα για τον πίνακα `postmeta`
+--
+
+CREATE TABLE `postmeta` (
+  `id` int(11) NOT NULL,
+  `status` enum('approved','published','suspended') CHARACTER SET latin1 COLLATE latin1_general_ci NOT NULL,
+  `type` enum('article','tutorial','general') CHARACTER SET latin1 COLLATE latin1_general_ci NOT NULL,
   `post_id` int(11) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
@@ -79,6 +92,13 @@ ALTER TABLE `comments`
   ADD KEY `comments_post_id_foreign` (`post_id`);
 
 --
+-- Ευρετήρια για πίνακα `postmeta`
+--
+ALTER TABLE `postmeta`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `post_id` (`post_id`);
+
+--
 -- Ευρετήρια για πίνακα `posts`
 --
 ALTER TABLE `posts`
@@ -105,19 +125,25 @@ ALTER TABLE `user_post`
 -- AUTO_INCREMENT για πίνακα `comments`
 --
 ALTER TABLE `comments`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT για πίνακα `postmeta`
+--
+ALTER TABLE `postmeta`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT για πίνακα `posts`
 --
 ALTER TABLE `posts`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT για πίνακα `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- Περιορισμοί για άχρηστους πίνακες
@@ -128,6 +154,12 @@ ALTER TABLE `users`
 --
 ALTER TABLE `comments`
   ADD CONSTRAINT `comments_post_id_foreign` FOREIGN KEY (`post_id`) REFERENCES `posts` (`id`) ON DELETE CASCADE;
+
+--
+-- Περιορισμοί για πίνακα `postmeta`
+--
+ALTER TABLE `postmeta`
+  ADD CONSTRAINT `postmeta_post_id_foreign_key` FOREIGN KEY (`post_id`) REFERENCES `posts` (`id`) ON DELETE CASCADE;
 
 --
 -- Περιορισμοί για πίνακα `user_post`

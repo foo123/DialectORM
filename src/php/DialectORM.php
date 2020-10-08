@@ -97,7 +97,10 @@ class DialectORM
         $db = DialectORM::getDB();
         $sql = new Dialect($db->vendor());
         $sql->escape(array($db, 'escape'), $db->escapeWillQuote());
-        if (method_exists($db, 'escapeId')) $sql->escapeId(array($db, 'escapeId'));
+        if (method_exists($db, 'escapeId'))
+        {
+            $sql->escapeId(array($db, 'escapeId'), method_exists($db, 'escapeIdWillQuote') ? $db->escapeIdWillQuote() : false);
+        }
         return $sql;
     }
 
@@ -314,35 +317,65 @@ class DialectORM
                 {
                     case 'hasone':
                         $fk = $rel[2];
-                        $rpk = $class::$pk;
-                        $fids = static::pluck($entities, $fk);
-                        $conditions = array("$rpk"=>array('in'=>$fids));
-                        if ( isset($options['related'][$field]['conditions']) )
-                            $conditions = array_merge($options['related'][$field]['conditions'], $conditions);
-                        $rentities = $class::getAll(array(
-                            'conditions' => $conditions,
-                        ));
-                        $map = array();
-                        foreach($rentities as $re)
-                        {
-                            $map[(string)$re->getPk()] = $re;
-                        }
-                        foreach($entities as $e)
-                        {
-                            $fkv = (string)$e->get($fk);
-                            $e->set($field, isset($map[$fkv]) ? $map[$fkv] : null);
-                        }
-                        break;
-                    case 'hasmany':
-                        $fk = $rel[2];
                         $conditions = array("$fk"=>array('in'=>$ids));
                         if ( isset($options['related'][$field]['conditions']) )
                             $conditions = array_merge($options['related'][$field]['conditions'], $conditions);
                         $rentities = $class::getAll(array(
-                            'conditions' => $conditions,
-                            'order' => isset($options['related'][$field]['order']) ? $options['related'][$field]['order'] : array(),
-                            'limit' => isset($options['related'][$field]['limit']) ? $options['related'][$field]['limit'] : null,
+                            'conditions' => $conditions
                         ));
+                        $map = array();
+                        foreach($rentities as $re)
+                        {
+                            $map[(string)$re->get($fk)] = $re;
+                        }
+                        foreach($entities as $e)
+                        {
+                            $kv = (string)$e->getPk();
+                            $e->set($field, isset($map[$kv]) ? $map[$kv] : null);
+                        }
+                        break;
+                    case 'hasmany':
+                        $fk = $rel[2];
+                        if (isset($options['related'][$field]['limit']))
+                        {
+                            $sql = DialectORM::getSQL();
+                            $selects = array();
+                            foreach($ids as $id)
+                            {
+                                $conditions = array("$fk"=>$id);
+                                if ( isset($options['related'][$field]['conditions']) )
+                                    $conditions = array_merge($options['related'][$field]['conditions'], $conditions);
+
+                                $subquery = $sql->subquery()
+                                    ->Select('*')
+                                    ->From(DialectORM::tbl($class::$table))
+                                    ->Where($conditions)
+                                ;
+                                if ( !empty($options['related'][$field]['order']) )
+                                {
+                                    foreach($options['related'][$field]['order'] as $ofield=>$dir)
+                                        $subquery->Order($ofield, $dir);
+                                }
+                                if ( is_array($options['related'][$field]['limit']) )
+                                    $subquery->Limit($options['related'][$field]['limit'][0], isset($options['related'][$field]['limit'][1])?$options['related'][$field]['limit'][1]:0);
+                                else
+                                    $subquery->Limit($options['related'][$field]['limit'], 0);
+
+                                $selects[] = $subquery->sql();
+                            }
+                            $rentities = DialectORM::getDB()->get($sql->Union($selects, false)->sql());
+                            foreach($rentities as $i=>$re) $rentities[$i] = new $class($re);
+                        }
+                        else
+                        {
+                            $conditions = array("$fk"=>array('in'=>$ids));
+                            if ( isset($options['related'][$field]['conditions']) )
+                                $conditions = array_merge($options['related'][$field]['conditions'], $conditions);
+                            $rentities = $class::getAll(array(
+                                'conditions' => $conditions,
+                                'order' => isset($options['related'][$field]['order']) ? $options['related'][$field]['order'] : array()
+                            ));
+                        }
                         $map = array();
                         foreach($rentities as $re)
                         {
@@ -389,16 +422,49 @@ class DialectORM
                                 ->Where(array("$pk2"=>array('in'=>$ids)))
                                 ->sql()
                         );
-                        $conditions = array(
-                            "$rpk" => array('in'=>array_map(function($d)use($fk){return $d[$fk];}, $reljoin))
-                        );
-                        if ( isset($options['related'][$field]['conditions']) )
-                            $conditions = array_merge($options['related'][$field]['conditions'], $conditions);
-                        $rentities = $class::getAll(array(
-                            'conditions' => $conditions,
-                            'order' => isset($options['related'][$field]['order']) ? $options['related'][$field]['order'] : array(),
-                            'limit' => isset($options['related'][$field]['limit']) ? $options['related'][$field]['limit'] : null,
-                        ));
+                        $fids = array_map(function($d)use($fk){return $d[$fk];}, $reljoin);
+                        if (!empty($fids) && isset($options['related'][$field]['limit']))
+                        {
+                            $sql = DialectORM::getSQL();
+                            $selects = array();
+                            foreach($fids as $id)
+                            {
+                                $conditions = array("$rpk"=>$id);
+                                if ( isset($options['related'][$field]['conditions']) )
+                                    $conditions = array_merge($options['related'][$field]['conditions'], $conditions);
+
+                                $subquery = $sql->subquery()
+                                    ->Select('*')
+                                    ->From(DialectORM::tbl($class::$table))
+                                    ->Where($conditions)
+                                ;
+                                if ( !empty($options['related'][$field]['order']) )
+                                {
+                                    foreach($options['related'][$field]['order'] as $ofield=>$dir)
+                                        $subquery->Order($ofield, $dir);
+                                }
+                                if ( is_array($options['related'][$field]['limit']) )
+                                    $subquery->Limit($options['related'][$field]['limit'][0], isset($options['related'][$field]['limit'][1])?$options['related'][$field]['limit'][1]:0);
+                                else
+                                    $subquery->Limit($options['related'][$field]['limit'], 0);
+
+                                $selects[] = $subquery->sql();
+                            }
+                            $rentities = DialectORM::getDB()->get($sql->Union($selects, false)->sql());
+                            foreach($rentities as $i=>$re) $rentities[$i] = new $class($re);
+                        }
+                        else
+                        {
+                            $conditions = array(
+                                "$rpk" => array('in'=>$fids)
+                            );
+                            if ( isset($options['related'][$field]['conditions']) )
+                                $conditions = array_merge($options['related'][$field]['conditions'], $conditions);
+                            $rentities = $class::getAll(array(
+                                'conditions' => $conditions,
+                                'order' => isset($options['related'][$field]['order']) ? $options['related'][$field]['order'] : array()
+                            ));
+                        }
                         $map = array();
                         foreach($rentities as $re)
                         {
@@ -440,7 +506,7 @@ class DialectORM
             foreach(static::$relationships as $field=>$rel)
             {
                 $type = strtolower($rel[0]); $class = $rel[1];
-                if ( 'hasone'===$type || 'belongsto'===$type )
+                if ( 'belongsto'===$type )
                 {
                     // bypass
                     continue;
@@ -567,8 +633,34 @@ class DialectORM
                 switch($rel->type)
                 {
                     case 'hasone':
+                    case 'hasmany':
                         $class = $rel->b;
-                        $rel->data = $class::getByPk($this->get($rel->keyb), null);
+                        $fk = $rel->keyb;
+                        $rel->data = 'hasone' === $rel->type ? $class::getAll(array(
+                            'conditions' => array("$fk"=>$this->getPk()),
+                            'single' => true
+                        )) : $class::getAll(array(
+                            'conditions' => array_merge($options['conditions'], array("$fk"=>$this->getPk())),
+                            'order' => $options['order'],
+                            'limit' => $options['limit'],
+                        ));
+                        if ( !empty($rel->data) && ($mirrorRel = $this->_getMirrorRel($rel)) )
+                        {
+                            if (is_array($rel->data))
+                            {
+                                foreach($rel->data as $entity)
+                                {
+                                    //$entity->set($rel->keyb, $this->getPk());
+                                    $entity->set($mirrorRel->field, $this, array('recurse'=>false));
+                                }
+                            }
+                            else
+                            {
+                                $entity = $rel->data;
+                                //$entity->set($rel->keyb, $this->getPk());
+                                $entity->set($mirrorRel->field, $this, array('recurse'=>false));
+                            }
+                        }
                         break;
                     case 'belongsto':
                         $class = $rel->b;
@@ -576,24 +668,7 @@ class DialectORM
                         if ( !empty($rel->data) && ($mirrorRel = $this->_getMirrorRel($rel)) )
                         {
                             $entity = $rel->data;
-                            $entity->set($mirrorRel->field, array($this), array('recurse'=>false,'merge'=>true));
-                        }
-                        break;
-                    case 'hasmany':
-                        $class = $rel->b;
-                        $fk = $rel->keyb;
-                        $rel->data = $class::getAll(array(
-                            'conditions' => array_merge($options['conditions'], array("$fk"=>$this->getPk())),
-                            'order' => $options['order'],
-                            'limit' => $options['limit'],
-                        ));
-                        if ( !empty($rel->data) && ($mirrorRel = $this->_getMirrorRel($rel)) )
-                        {
-                            foreach($rel->data as $entity)
-                            {
-                                //$entity->set($rel->key, $this->getPk());
-                                $entity->set($mirrorRel->field, $this, array('recurse'=>false));
-                            }
+                            $entity->set($mirrorRel->field, 'hasone' === $mirrorRel->type ? $this : array($this), array('recurse'=>false,'merge'=>true));
                         }
                         break;
                     case 'belongstomany':
@@ -605,7 +680,7 @@ class DialectORM
                         $fkthis = $jtbl.'.'.$rel->keya;
                         $fields = $class::$fields;
                         foreach($fields as $i=>$field) $fields[$i] = $tbl.'.'.$field.' AS '.$field;
-                        $this->sql()
+                        $this->sql()->clear()
                             ->Select($fields)
                             ->From($tbl)
                             ->Join($jtbl, "{$pk}={$fk}", 'inner')
@@ -736,11 +811,24 @@ class DialectORM
                 {
                     case 'belongsto':
                         $pk = $this->getPk();
-                        foreach($rel->data as $entity)
+                        if (is_array($rel->data))
                         {
+                            foreach($rel->data as $entity)
+                            {
+                                $entity->set($rel->keyb, $pk);
+                                $entity->set($mirrorRel->field, $this, array('recurse'=>false));
+                            }
+                        }
+                        else
+                        {
+                            $entity = $rel->data;
                             $entity->set($rel->keyb, $pk);
                             $entity->set($mirrorRel->field, $this, array('recurse'=>false));
                         }
+                        break;
+                    case 'hasone':
+                        $entity = $rel->data;
+                        $entity->set($mirrorRel->field, $this, array('recurse'=>false));
                         break;
                     case 'hasmany':
                         $entity = $rel->data;
@@ -756,6 +844,7 @@ class DialectORM
     {
         switch($rel->type)
         {
+            case 'hasone':
             case 'hasmany':
                 $thisclass = get_class($this);
                 $class = $rel->b;
@@ -772,9 +861,9 @@ class DialectORM
                 $class = $rel->b;
                 foreach($class::$relationships as $f=>$r)
                 {
-                    if ( 'hasmany'===strtolower($r[0]) && $thisclass===$r[1] && $rel->keyb===$r[2] )
+                    if ( ('hasone'===strtolower($r[0]) || 'hasmany'===strtolower($r[0])) && $thisclass===$r[1] && $rel->keyb===$r[2] )
                     {
-                        return (object)array('type'=>'hasmany', 'field'=>$f);
+                        return (object)array('type'=>strtolower($r[0]), 'field'=>$f);
                     }
                 }
                 break;
@@ -787,7 +876,7 @@ class DialectORM
         return isset(static::$relationships[$field]) && (is_array($this->data) && array_key_exists($field, $this->data));
     }
 
-    public function assoc($field, $entities)
+    public function assoc($field, $entity)
     {
         if ( !isset(static::$relationships[$field]) )
         {
@@ -802,13 +891,13 @@ class DialectORM
                 case 'belongstomany':
                     $jtbl = DialectORM::tbl($rel[4]);
                     $values = array();
-                    foreach($entities as $entity)
+                    foreach($entity as $ent)
                     {
-                        if ( !($entity instanceof $class) ) continue;
-                        $eid = $entity->getPk();
+                        if ( !($ent instanceof $class) ) continue;
+                        $eid = $ent->getPk();
                         if ( empty($eid) ) continue;
                         $notexists = empty($this->db()->get(
-                            $this->sql()
+                            $this->sql()->clear()
                                 ->Select('*')
                                 ->From($jtbl)
                                 ->Where(array("{$rel[2]}"=>$eid, "{$rel[3]}"=>$id))
@@ -822,7 +911,7 @@ class DialectORM
                     if ( !empty($values) )
                     {
                         $this->db()->query(
-                            $this->sql()
+                            $this->sql()->clear()
                                 ->Insert($jtbl, array($rel[2], $rel[3]))
                                 ->Values($values)
                                 ->sql()
@@ -830,18 +919,18 @@ class DialectORM
                     }
                     break;
                 case 'belongsto':
-                    if ( $entities instanceof $class )
-                        $entities->set($rel[2], $id)->save();
+                    if ( ($entity instanceof $class) && !empty($entity->getPk()) )
+                        $this->set($rel[2], $entity->getPk())->save();
                     break;
                 case 'hasone':
-                    if ( ($entities instanceof $class) && !empty($entities->getPk()) )
-                        $this->set($rel[2], $entities->getPk())->save();
+                    if ( $entity instanceof $class )
+                        $entity->set($rel[2], $id)->save();
                     break;
                 case 'hasmany':
-                    foreach($entities as $entity)
+                    foreach($entity as $ent)
                     {
-                        if ( !($entity instanceof $class) ) continue;
-                        $entity->set($rel[2], $id)->save();
+                        if ( !($ent instanceof $class) ) continue;
+                        $ent->set($rel[2], $id)->save();
                     }
                     break;
             }
@@ -849,7 +938,7 @@ class DialectORM
         return $this;
     }
 
-    public function dissoc($field, $entities)
+    public function dissoc($field, $entity)
     {
         if ( !isset(static::$relationships[$field]) )
         {
@@ -864,17 +953,17 @@ class DialectORM
                 case 'belongstomany':
                     $jtbl = DialectORM::tbl($rel[4]);
                     $values = array();
-                    foreach($entities as $entity)
+                    foreach($entity as $ent)
                     {
-                        if ( !($entity instanceof $class) ) continue;
-                        $eid = $entity->getPk();
+                        if ( !($ent instanceof $class) ) continue;
+                        $eid = $ent->getPk();
                         if ( empty($eid) ) continue;
                         $values[] = $eid;
                     }
                     if ( !empty($values) )
                     {
                         $this->db()->query(
-                            $this->sql()
+                            $this->sql()->clear()
                                 ->Delete()
                                 ->From($jtbl)
                                 ->Where(array(
@@ -886,9 +975,7 @@ class DialectORM
                     }
                     break;
                 case 'belongsto':
-                    break;
                 case 'hasone':
-                    break;
                 case 'hasmany':
                     break;
             }
@@ -1023,7 +1110,7 @@ class DialectORM
         {
             if ( !isset($this->relations[$field]) ) continue;
             $rel = $this->relations[$field]; $entity = $rel->data; $class = $rel->b;
-            if ( in_array($rel->type, array('belongsto', 'hasone')) && ($entity instanceof $class) )
+            if ( in_array($rel->type, array('belongsto')) && ($entity instanceof $class) )
             {
                 $entity->save();
                 $this->set($rel->keyb, $entity->getPk());
@@ -1039,7 +1126,7 @@ class DialectORM
             if ( !empty($id) && !$options['force'] )
             {
                 // update
-                $this->sql()
+                $this->sql()->clear()
                 ->Update(DialectORM::tbl(static::$table))
                 ->Set($this->toArray(false, true))
                 ->Where(array("$pk"=>$id))
@@ -1049,7 +1136,7 @@ class DialectORM
             {
                 // insert
                 $data = $this->data;
-                $this->sql()
+                $this->sql()->clear()
                 ->Insert(DialectORM::tbl(static::$table), static::$fields)
                 ->Values(array_map(function($f)use($data){return array_key_exists($f, $data) ? $data[$f] : null;}, static::$fields))
                 ;
@@ -1067,7 +1154,7 @@ class DialectORM
         $id = $this->get($pk);
         foreach($withRelated as $field)
         {
-            if ( !isset($this->relations[$field]) || in_array($this->relations[$field]->type, array('belongsto', 'hasone')) ) continue;
+            if ( !isset($this->relations[$field]) || in_array($this->relations[$field]->type, array('belongsto')) ) continue;
             $rel = $this->relations[$field]; $class = $rel->b;
             if ( !empty($rel->data) )
             {
@@ -1090,6 +1177,11 @@ class DialectORM
                 else
                 {
                     $entity = $rel->data;
+                    if ( 'hasone'===$rel->type )
+                    {
+                        if ( $entity instanceof $class )
+                            $entity->set($rel->keyb, $id);
+                    }
                     if ( $entity instanceof $class )
                         $entity->save();
                 }
@@ -1106,7 +1198,7 @@ class DialectORM
                         // the most cross-platform way seems to do an extra select to check if relation already exists
                         // https://stackoverflow.com/questions/13041023/insert-on-duplicate-key-update-nothing-using-mysql/13041065
                         $notexists = empty($this->db()->get(
-                            $this->sql()
+                            $this->sql()->clear()
                                 ->Select('*')
                                 ->From($jtbl)
                                 ->Where(array("{$rel->keyb}"=>$eid, "{$rel->keya}"=>$id))
@@ -1120,7 +1212,7 @@ class DialectORM
                     if ( !empty($values) )
                     {
                         $this->db()->query(
-                            $this->sql()
+                            $this->sql()->clear()
                                 ->Insert($jtbl, array($rel->keyb, $rel->keya))
                                 ->Values($values)
                                 ->sql()

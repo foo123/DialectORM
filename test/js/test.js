@@ -33,6 +33,43 @@ class Post extends DialectORM
         return 0 < x.length;
     }
 }
+class PostMeta extends DialectORM
+{
+    static table = 'postmeta';
+    static pk = 'id';
+    static fields = ['id', 'status', 'type', 'post_id'];
+    static relationships = {};
+
+    typeId(x)
+    {
+        return parseInt(x, 10) || 0;
+    }
+
+    typePostId(x)
+    {
+        return parseInt(x, 10) || 0;
+    }
+
+    typeStatus(x)
+    {
+        return String(x).toLowerCase();
+    }
+
+    typeType(x)
+    {
+        return String(x).toLowerCase();
+    }
+
+    validateStatus(x)
+    {
+        return -1 !== ['approved', 'published', 'suspended'].indexOf(x);
+    }
+
+    validateType(x)
+    {
+        return -1 !== ['article', 'tutorial', 'general'].indexOf(x);
+    }
+}
 class Comment extends DialectORM
 {
     static table = 'comments';
@@ -83,8 +120,12 @@ class User extends DialectORM
     }
 }
 Post.relationships = {
+    'meta' : ['hasOne', PostMeta, 'post_id'],
     'comments' : ['hasMany', Comment, 'post_id'],
-    'users' : ['belongsToMany', User, 'user_id', 'post_id', 'user_post']
+    'authors' : ['belongsToMany', User, 'user_id', 'post_id', 'user_post']
+};
+PostMeta.relationships = {
+    'post' : ['belongsTo', Post, 'post_id']
 };
 Comment.relationships = {
     'post' : ['belongsTo', Post, 'post_id']
@@ -112,25 +153,26 @@ async function test()
     output('Posts: ' + String(await Post.count()));
     output('Users: ' + String(await User.count()));
 
-    /*let post = new Post({'content':'a js post..'});
-    post.setComments([new Comment({'content':'a js comment..'})]);
-    post.setComments([new Comment({'content':'another js comment..'})], {'merge':true});
-    post.setUsers([new User({'name':'js user'})]);
+    /*let post = new Post({'content':'another js post..'});
+    post.setComments([new Comment({'content':'still another js comment..'})]);
+    post.setComments([new Comment({'content':'one more js comment..'})], {'merge':true});
+    post.setAuthors([new User({'name':'another js user'})]);
+    post.setMeta(new PostMeta({'status':'approved','type':'article'}));
     await post.save({'withRelated':true});*/
 
     /*let post2 = new Post({'content':'js post to delete..'});
     await post2.save();*/
 
     print('Posts:');
-    output(await Post.getAll({'withRelated' : ['comments', 'users']}));
+    output(await Post.getAll({'withRelated' : ['meta', 'comments', 'authors']}));
 
     //await post2.del();
 
     print('Posts:');
     output(await Post.getAll({
-        'withRelated' : ['comments', 'users'],
+        'withRelated' : ['meta', 'comments', 'authors'],
         'related' : {
-        'comments' : {'conditions':{'content':{'like':'js'}}} // eager relationship loading with extra conditions, see `Dialect` lib on how to define conditions
+        'comments' : {'limit':1} // eager relationship loading with extra conditions, see `Dialect` lib on how to define conditions
         }
     }));
 }

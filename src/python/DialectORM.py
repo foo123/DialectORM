@@ -219,7 +219,8 @@ class DialectORM:
         db = DialectORM.getDB()
         sql = Dialect(db.vendor())
         sql.escape(db.escape, db.escapeWillQuote())
-        if hasattr(db, 'escapeId') and callable(getattr(db, 'escapeId')): sql.escapeId(db.escapeId)
+        if hasattr(db, 'escapeId') and callable(getattr(db, 'escapeId')):
+            sql.escapeId(db.escapeId, db.escapeIdWillQuote() if hasattr(db, 'escapeIdWillQuote') and callable(getattr(db, 'escapeIdWillQuote')) else False)
         return sql
 
     @staticmethod
@@ -411,10 +412,8 @@ class DialectORM:
                 cls = rel[1]
                 if 'hasone'==type:
                     fk = rel[2]
-                    rpk = cls.pk
-                    fids = klass.pluck(entities, fk)
                     conditions = {}
-                    conditions[rpk] = {'in':fids}
+                    conditions[fk] = {'in':ids}
                     if field in options['related'] and 'conditions' in options['related'][field]:
                         conditions2 = options['related'][field]['conditions'].copy()
                         conditions2.update(conditions)
@@ -424,24 +423,57 @@ class DialectORM:
                     })
                     mapp = {}
                     for re in rentities:
-                        mapp[str(re.getPk())] = re
+                        mapp[str(re.get(fk))] = re
                     for e in entities:
-                        fkv = str(e.get(fk))
-                        e.set(field, mapp[fkv] if fkv in mapp else None)
+                        kv = str(e.getPk())
+                        e.set(field, mapp[kv] if kv in mapp else None)
 
                 elif 'hasmany'==type:
                     fk = rel[2]
-                    conditions = {}
-                    conditions[fk] = {'in':ids}
-                    if field in options['related'] and 'conditions' in options['related'][field]:
-                        conditions2 = options['related'][field]['conditions'].copy()
-                        conditions2.update(conditions)
-                        conditions = conditions2
-                    rentities = cls.getAll({
-                        'conditions' : conditions,
-                        'order' : options['related'][field]['order'] if field in options['related'] and 'order' in options['related'][field] else OrderedDict(),
-                        'limit' : options['related'][field]['limit'] if field in options['related'] and 'limit' in options['related'][field] else None
-                    })
+                    if field in options['related'] and 'limit' in options['related'][field]:
+                        sql = DialectORM.getSQL()
+                        selects = []
+                        for id in ids:
+                            conditions = {}
+                            conditions[fk] = id
+                            if field in options['related'] and 'conditions' in options['related'][field]:
+                                conditions2 = options['related'][field]['conditions'].copy()
+                                conditions2.update(conditions)
+                                conditions = conditions2
+
+                            subquery = sql.subquery().Select(
+                                '*'
+                            ).From(
+                                DialectORM.tbl(cls.table)
+                            ).Where(
+                                conditions
+                            )
+                            if field in options['related'] and 'order' in options['related'][field]:
+                                for ofield in options['related'][field]['order']:
+                                    subquery.Order(ofield, options['related'][field]['order'][ofield])
+
+                            if isinstance(options['related'][field]['limit'], (list,tuple)):
+                                subquery.Limit(options['related'][field]['limit'][0], options['related'][field]['limit'][1] if 1<len(options['related'][field]['limit']) else 0)
+                            else:
+                                subquery.Limit(options['related'][field]['limit'], 0)
+
+                            selects.append(subquery.sql())
+
+                        rentities = DialectORM.getDB().get(sql.Union(selects, False).sql())
+                        for i in range(len(rentities)):
+                            rentities[i] = cls(rentities[i])
+                    else:
+                        conditions = {}
+                        conditions[fk] = {'in':ids}
+                        if field in options['related'] and 'conditions' in options['related'][field]:
+                            conditions2 = options['related'][field]['conditions'].copy()
+                            conditions2.update(conditions)
+                            conditions = conditions2
+                        rentities = cls.getAll({
+                            'conditions' : conditions,
+                            'order' : options['related'][field]['order'] if field in options['related'] and 'order' in options['related'][field] else OrderedDict()
+                        })
+
                     mapp = {}
                     for re in rentities:
                         fkv = str(re.get(fk))
@@ -487,17 +519,51 @@ class DialectORM:
                             conditions
                         ).sql()
                     )
-                    conditions = {}
-                    conditions[rpk] = {'in':list(map(lambda d: d[fk], reljoin))}
-                    if field in options['related'] and 'conditions' in options['related'][field]:
-                        conditions2 = options['related'][field]['conditions'].copy()
-                        conditions2.update(conditions)
-                        conditions = conditions2
-                    rentities = cls.getAll({
-                        'conditions' : conditions,
-                        'order' : options['related'][field]['order'] if field in options['related'] and 'order' in options['related'][field] else OrderedDict(),
-                        'limit' : options['related'][field]['limit'] if field in options['related'] and 'limit' in options['related'][field] else None
-                    })
+                    fids = list(map(lambda d: d[fk], reljoin))
+                    if (not empty(fids)) and (field in options['related'] and 'limit' in options['related'][field]):
+                        sql = DialectORM.getSQL()
+                        selects = []
+                        for id in fids:
+                            conditions = {}
+                            conditions[rpk] = id
+                            if field in options['related'] and 'conditions' in options['related'][field]:
+                                conditions2 = options['related'][field]['conditions'].copy()
+                                conditions2.update(conditions)
+                                conditions = conditions2
+
+                            subquery = sql.subquery().Select(
+                                '*'
+                            ).From(
+                                DialectORM.tbl(cls.table)
+                            ).Where(
+                                conditions
+                            )
+                            if field in options['related'] and 'order' in options['related'][field]:
+                                for ofield in options['related'][field]['order']:
+                                    subquery.Order(ofield, options['related'][field]['order'][ofield])
+
+                            if isinstance(options['related'][field]['limit'], (list,tuple)):
+                                subquery.Limit(options['related'][field]['limit'][0], options['related'][field]['limit'][1] if 1<len(options['related'][field]['limit']) else 0)
+                            else:
+                                subquery.Limit(options['related'][field]['limit'], 0)
+
+                            selects.append(subquery.sql())
+
+                        rentities = DialectORM.getDB().get(sql.Union(selects, False).sql())
+                        for i in range(len(rentities)):
+                            rentities[i] = cls(rentities[i])
+                    else:
+                        conditions = {}
+                        conditions[rpk] = {'in':fids}
+                        if field in options['related'] and 'conditions' in options['related'][field]:
+                            conditions2 = options['related'][field]['conditions'].copy()
+                            conditions2.update(conditions)
+                            conditions = conditions2
+                        rentities = cls.getAll({
+                            'conditions' : conditions,
+                            'order' : options['related'][field]['order'] if field in options['related'] and 'order' in options['related'][field] else OrderedDict()
+                        })
+
                     mapp = {}
                     for re in rentities:
                         mapp[str(re.getPk())] = re
@@ -529,7 +595,7 @@ class DialectORM:
                 rel = klass.relationships[field]
                 type = rel[0].lower()
                 cls = rel[1]
-                if 'hasone'==type or 'belongsto'==type:
+                if 'belongsto'==type:
                     # bypass
                     pass
                 elif 'belongstomany'==type:
@@ -635,9 +701,35 @@ class DialectORM:
 
             if rel.data is False:
 
-                if 'hasone'==rel.type:
+                if 'hasone'==rel.type or 'hasmany'==rel.type:
                     cls = rel.b
-                    rel.data = cls.getByPk(self.get(rel.keyb), None)
+                    fk = rel.keyb
+                    if 'hasone'==rel.type:
+                        conditions = {}
+                        conditions[fk] = self.getPk()
+                        rel.data = cls.getAll({
+                            'conditions' : conditions,
+                            'single' : True
+                        })
+                    else:
+                        conditions = options['conditions'].copy()
+                        conditions[fk] = self.getPk()
+                        rel.data = cls.getAll({
+                            'conditions' : conditions,
+                            'order' : options['order'],
+                            'limit' : options['limit']
+                        })
+                    if rel.data:
+                        mirrorRel = self._getMirrorRel(rel)
+                        if mirrorRel:
+                            if isinstance(rel.data, list):
+                                for entity in rel.data:
+                                    #entity.set(rel.keyb, self.getPk())
+                                    entity.set(mirrorRel['field'], self, {'recurse':False})
+                            else:
+                                entity = rel.data
+                                #entity.set(rel.keyb, self.getPk())
+                                entity.set(mirrorRel['field'], self, {'recurse':False})
                 elif 'belongsto'==rel.type:
                     cls = rel.b
                     rel.data = cls.getByPk(self.get(rel.keyb), None)
@@ -645,23 +737,7 @@ class DialectORM:
                         mirrorRel = self._getMirrorRel(rel)
                         if mirrorRel:
                             entity = rel.data
-                            entity.set(mirrorRel['field'], [self], {'recurse':False,'merge':True})
-                elif 'hasmany'==rel.type:
-                    cls = rel.b
-                    fk = rel.keyb
-                    conditions = options['conditions'].copy()
-                    conditions[fk] = self.getPk()
-                    rel.data = cls.getAll({
-                        'conditions' : conditions,
-                        'order' : options['order'],
-                        'limit' : options['limit']
-                    })
-                    if rel.data:
-                        mirrorRel = self._getMirrorRel(rel)
-                        if mirrorRel:
-                            for entity in rel.data:
-                                #entity.set(rel.key, self.getPk())
-                                entity.set(mirrorRel['field'], self, {'recurse':False})
+                            entity.set(mirrorRel['field'], self if 'hasone'==mirrorRel['type'] else [self], {'recurse':False,'merge':True})
                 elif 'belongstomany'==rel.type:
                     cls = rel.b
                     tbl = DialectORM.tbl(cls.table)
@@ -673,7 +749,7 @@ class DialectORM:
                     for i in range(len(fields)): fields[i] = tbl+'.'+fields[i]+' AS '+fields[i]
                     conditions = options['conditions'].copy()
                     conditions[fkthis] = self.getPk()
-                    self.sql().Select(
+                    self.sql().clear().Select(
                         fields
                     ).From(
                         tbl
@@ -785,9 +861,17 @@ class DialectORM:
                 if mirrorRel:
                     if 'belongsto'==mirrorRel['type']:
                         pk = self.getPk()
-                        for entity in rel.data:
+                        if isinstance(rel.data, list):
+                            for entity in rel.data:
+                                entity.set(rel.keyb, pk)
+                                entity.set(mirrorRel['field'], self, {'recurse':False})
+                        else:
+                            entity = rel.data
                             entity.set(rel.keyb, pk)
                             entity.set(mirrorRel['field'], self, {'recurse':False})
+                    elif 'hasone'==mirrorRel['type']:
+                        entity = rel.data
+                        entity.set(mirrorRel['field'], self, {'recurse':False})
                     elif 'hasmany'==mirrorRel['type']:
                         entity = rel.data
                         entity.set(mirrorRel['field'], [self], {'recurse':False,'merge':True})
@@ -795,7 +879,7 @@ class DialectORM:
         return self
 
     def _getMirrorRel(self, rel):
-        if 'hasmany'==rel.type:
+        if 'hasone'==rel.type or 'hasmany'==rel.type:
             thisclass = self.__class__
             cls = rel.b
             for f in cls.relationships:
@@ -807,8 +891,8 @@ class DialectORM:
             cls = rel.b
             for f in cls.relationships:
                 r = cls.relationships[f]
-                if 'hasmany'==r[0].lower() and thisclass==r[1] and rel.keyb==r[2]:
-                    return {'type':'hasmany', 'field':f}
+                if ('hasone'==r[0].lower() or 'hasmany'==r[0].lower()) and thisclass==r[1] and rel.keyb==r[2]:
+                    return {'type':r[0].lower(), 'field':f}
 
         return None
 
@@ -817,7 +901,7 @@ class DialectORM:
         klass = self.__class__
         return (field not in klass.relationships) and (isinstance(self.data, dict) and (field in self.data))
 
-    def assoc(self, field, entities):
+    def assoc(self, field, entity):
         field = str(field)
         klass = self.__class__
         if field not in klass.relationships:
@@ -830,15 +914,15 @@ class DialectORM:
             if 'belongstomany'==type:
                 jtbl = TnyORM.tbl(rel[4])
                 values = []
-                for entity in entities:
-                    if not isinstance(entity, cls): continue
-                    eid = entity.getPk()
+                for ent in entity:
+                    if not isinstance(ent, cls): continue
+                    eid = ent.getPk()
                     if empty(eid): continue
                     conditions = {}
                     conditions[rel[2]] = eid
                     conditions[rel[3]] = id
                     notexists = empty(self.db().get(
-                        self.sql().Select(
+                        self.sql().clear().Select(
                             '*'
                         ).From(
                             jtbl
@@ -850,26 +934,26 @@ class DialectORM:
                         values.append([eid, id])
                 if not empty(values):
                     self.db().query(
-                        self.sql().Insert(
+                        self.sql().clear().Insert(
                             jtbl, [rel[2], rel[3]]
                         ).Values(
                             values
                         ).sql()
                     )
             elif 'belongsto'==type:
-                if isinstance(entities, cls):
-                    entities.set(rel[2], id).save()
+                if isinstance(entity, cls) and not empty(entity.getPk()):
+                    self.set(rel[2], entity.getPk()).save()
             elif 'hasone'==type:
-                if isinstance(entities, cls) and not empty(entities.getPk()):
-                    self.set(rel[2], entities.getPk()).save()
-            elif 'hasmany'==type:
-                for entity in entities:
-                    if not isinstance(entity, cls): continue
+                if isinstance(entity, cls):
                     entity.set(rel[2], id).save()
+            elif 'hasmany'==type:
+                for ent in entity:
+                    if not isinstance(ent, cls): continue
+                    ent.set(rel[2], id).save()
 
         return self
 
-    def dissoc(self, field, entities):
+    def dissoc(self, field, entity):
         field = str(field)
         klass = self.__class__
         if field not in klass.relationships:
@@ -882,9 +966,9 @@ class DialectORM:
             if 'belongstomany'==type:
                 jtbl = DialectORM.tbl(rel[4])
                 values = []
-                for entity in entities:
-                    if not isinstance(entity, cls): continue
-                    eid = entity.getPk()
+                for ent in entity:
+                    if not isinstance(ent, cls): continue
+                    eid = ent.getPk()
                     if empty(eid): continue
                     values.append(eid)
                 if not empty( values):
@@ -892,7 +976,7 @@ class DialectORM:
                     conditions[rel[3]] = id
                     conditions[rel[2]] = {'in':values}
                     self.db().query(
-                        self.sql().Delete(
+                        self.sql().clear().Delete(
                         ).From(
                             jtbl
                         ).Where(
@@ -1020,7 +1104,7 @@ class DialectORM:
             rel = self.relations[field]
             entity = rel.data
             cls = rel.b
-            if (rel.type in ['belongsto', 'hasone']) and isinstance(entity, cls):
+            if (rel.type in ['belongsto']) and isinstance(entity, cls):
                 entity.save()
                 self.set(rel.keyb, entity.getPk())
 
@@ -1033,7 +1117,7 @@ class DialectORM:
                 # update
                 conditions = {}
                 conditions[pk] = id
-                self.sql().Update(
+                self.sql().clear().Update(
                     DialectORM.tbl(klass.table)
                 ).Set(
                     self.toDict(False, True)
@@ -1042,7 +1126,7 @@ class DialectORM:
                 )
             else:
                 # insert
-                self.sql().Insert(
+                self.sql().clear().Insert(
                     DialectORM.tbl(klass.table), klass.fields
                 ).Values(
                     list(map(lambda f: self.data[f] if f in self.data else None, klass.fields))
@@ -1059,7 +1143,7 @@ class DialectORM:
         id = self.get(pk)
         for field in withRelated:
             field = str(field)
-            if (field not in self.relations) or (self.relations[field].type in ['belongsto', 'hasone']): continue
+            if (field not in self.relations) or (self.relations[field].type in ['belongsto']): continue
             rel = self.relations[field]
             cls = rel.b
             if rel.data:
@@ -1073,6 +1157,9 @@ class DialectORM:
                             entity.save()
                 else:
                     entity = rel.data
+                    if 'hasone'==rel.type:
+                        if isinstance(entity, cls):
+                            entity.set(rel.keyb, id)
                     if isinstance(entity, cls):
                         entity.save()
 
@@ -1090,7 +1177,7 @@ class DialectORM:
                         conditions[rel.keyb] = eid
                         conditions[rel.keya] = id
                         notexists = empty(self.db().get(
-                            self.sql().Select(
+                            self.sql().clear().Select(
                                 '*'
                             ).From(
                                 jtbl
@@ -1102,7 +1189,7 @@ class DialectORM:
                             values.append([eid, id])
                     if not empty(values):
                         self.db().query(
-                            self.sql().Insert(
+                            self.sql().clear().Insert(
                                 jtbl, [rel.keyb, rel.keya]
                             ).Values(
                                 values
