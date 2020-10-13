@@ -96,10 +96,6 @@ var magicMethodsProxy = {
             return target[prop];
         }
 
-        // make sure only exusting custom types and validators are checked
-        //if ('type'===prop.slice(0, 4)) return undefined;
-        //if ('validate'===prop.slice(0, 8)) return undefined;
-
         // Falls to __call
         return function(...args) {
             var value = target.__call(prop, args, proxy);
@@ -166,7 +162,7 @@ class DialectORM
     static pluck(entities, field='')
     {
         if (''===field)
-            return entities.map(entity => entity.getPk());
+            return entities.map(entity => entity.primaryKey());
         else
             return entities.map(entity => entity.get(field));
     }
@@ -366,7 +362,7 @@ class DialectORM
                     }
                     for (e = 0; e < entities.length; e++)
                     {
-                        kv = String(entities[e].getPk());
+                        kv = String(entities[e].primaryKey());
                         entities[e].set(field, has(mapp, kv) ? mapp[kv] : null);
                     }
                 }
@@ -432,7 +428,7 @@ class DialectORM
                     }
                     for (e = 0; e < entities.length; e++)
                     {
-                        kv = String(entities[e].getPk());
+                        kv = String(entities[e].primaryKey());
                         entities[e].set(field, has(mapp, kv) ? mapp[kv] : []);
                     }
                 }
@@ -453,7 +449,7 @@ class DialectORM
                     mapp = {};
                     for (re = 0; re < rentities.length; re++)
                     {
-                        mapp[String(rentities[re].getPk())] = rentities[re];
+                        mapp[String(rentities[re].primaryKey())] = rentities[re];
                     }
                     for (e = 0; e < entities.length; e++)
                     {
@@ -532,7 +528,7 @@ class DialectORM
                     mapp = {};
                     for (re = 0; re < rentities.length; re++)
                     {
-                        mapp[String(rentities[re].getPk())] = rentities[re];
+                        mapp[String(rentities[re].primaryKey())] = rentities[re];
                     }
                     relmapp = {};
                     for (d = 0; d < reljoin.length; d++)
@@ -544,7 +540,7 @@ class DialectORM
                     }
                     for (e = 0; e < entities.length; e++)
                     {
-                        k1 = String(entities[e].getPk());
+                        k1 = String(entities[e].primaryKey());
                         entities[e].set(field, has(relmapp, k1) ? relmapp[k1] : []);
                     }
                 }
@@ -731,7 +727,7 @@ class DialectORM
                         if ('hasone'===rel.type)
                         {
                             conditions = {};
-                            conditions[fk] = this.getPk();
+                            conditions[fk] = this.primaryKey();
                             cls.getAll({
                                 'conditions' : conditions,
                                 'single' : true
@@ -743,7 +739,7 @@ class DialectORM
                                     if (mirrorRel)
                                     {
                                         entity = rel.data;
-                                        //entity.set(rel.key, this.getPk());
+                                        //entity.set(rel.key, this.primaryKey());
                                         entity.set(mirrorRel.field, this.proxy, {'recurse':false});
                                     }
                                 }
@@ -753,7 +749,7 @@ class DialectORM
                         else
                         {
                             conditions = merge({}, options['conditions']);
-                            conditions[fk] = this.getPk();
+                            conditions[fk] = this.primaryKey();
                             cls.getAll({
                                 'conditions' : conditions,
                                 'order' : options['order'],
@@ -768,7 +764,7 @@ class DialectORM
                                         for (i = 0; i < rel.data.length; i++)
                                         {
                                             entity = rel.data[i];
-                                            //entity.set(rel.key, this.getPk());
+                                            //entity.set(rel.key, this.primaryKey());
                                             entity.set(mirrorRel.field, this.proxy, {'recurse':false});
                                         }
                                     }
@@ -805,7 +801,7 @@ class DialectORM
                         fields = cls.fields;
                         for (i = 0; i < fields.length; i++) fields[i] = tbl+'.'+fields[i]+' AS '+fields[i];
                         conditions = merge({}, options['conditions']);
-                        conditions[fkthis] = this.getPk();
+                        conditions[fkthis] = this.primaryKey();
                         this.sql().clear().Select(
                             fields
                         ).From(
@@ -851,7 +847,7 @@ class DialectORM
         return default_;
     }
 
-    getPk(default_=0)
+    primaryKey(default_=0)
     {
         let klass = this.constructor;
         return this.get(klass.pk, default_);
@@ -938,7 +934,7 @@ class DialectORM
                 pks = klass.pluck(rel.data);
                 for (i = 0; i < data.length; i++)
                 {
-                    dpk = data[i].getPk();
+                    dpk = data[i].primaryKey();
                     // add entities that do not exist already
                     if (empty(dpk) || !has(pks, dpk))
                     {
@@ -959,7 +955,7 @@ class DialectORM
                 {
                     if ('belongsto'===mirrorRel.type)
                     {
-                        pk = this.getPk();
+                        pk = this.primaryKey();
                         if (is_array(rel.data))
                         {
                             for (i = 0; i < rel.data.length; i++)
@@ -1037,7 +1033,7 @@ class DialectORM
         field = String(field);
         if (!has(klass.relationships, field))
             throw new DialectORM.Exception('Undefined Field: "'+field+'" in ' + klass.name + ' via assoc()');
-        id = this.getPk();
+        id = this.primaryKey();
         if (!empty(id))
         {
             rel = klass.relationships[field];
@@ -1051,7 +1047,7 @@ class DialectORM
                 {
                     ent = entity[i];
                     if (!(ent instanceof cls)) continue;
-                    eid = ent.getPk();
+                    eid = ent.primaryKey();
                     if (empty(eid)) continue;
                     conditions = {};
                     conditions[rel[2]] = eid;
@@ -1081,8 +1077,8 @@ class DialectORM
             }
             else if ('belongsto'===type)
             {
-                if ( (entity instanceof cls) && !empty(entity.getPk()) )
-                    await this.set(rel[2], entity.getPk()).save();
+                if ( (entity instanceof cls) && !empty(entity.primaryKey()) )
+                    await this.set(rel[2], entity.primaryKey()).save();
             }
             else if ('hasone'===type)
             {
@@ -1109,7 +1105,7 @@ class DialectORM
         if (!has(klass.relationships, field))
             throw new DialectORM.Exception('Undefined Field: "'+field+'" in ' + klass.name + ' via dissoc()');
 
-        id = this.getPk();
+        id = this.primaryKey();
         if (!empty(id))
         {
             rel = klass.relationships[field];
@@ -1123,7 +1119,7 @@ class DialectORM
                 {
                     ent = entity[i];
                     if (!(ent instanceof cls)) continue;
-                    eid = ent.getPk();
+                    eid = ent.primaryKey();
                     if (empty(eid)) continue;
                     values.push(eid);
                 }
@@ -1309,7 +1305,7 @@ class DialectORM
             if (has(['belongsto'], rel.type) && (entity instanceof cls))
             {
                 await entity.save();
-                this.set(rel.keyb, entity.getPk());
+                this.set(rel.keyb, entity.primaryKey());
             }
         }
 
@@ -1399,7 +1395,7 @@ class DialectORM
                     {
                         entity = entities[e];
                         if (!(entity instanceof cls)) continue;
-                        eid = entity.getPk();
+                        eid = entity.primaryKey();
                         if (empty(eid)) continue;
                         // the most cross-platform way seems to do an extra select to check if relation already exists
                         // https://stackoverflow.com/questions/13041023/insert-on-duplicate-key-update-nothing-using-mysql/13041065

@@ -172,7 +172,12 @@ async function test()
     output(await Post.getAll({
         'withRelated' : ['meta', 'comments', 'authors'],
         'related' : {
-        'comments' : {'limit':1} // eager relationship loading with extra conditions, see `Dialect` lib on how to define conditions
+            'authors' : {'clause':{'or':[
+                {'name':{'like':'user'}},
+                {'name':{'like':'foo'}},
+                {'name':{'like':'bar'}}
+            ]}},
+            'comments' : {'limit':1} // eager relationship loading with extra conditions, see `Dialect` lib on how to define conditions
         }
     }));
 }

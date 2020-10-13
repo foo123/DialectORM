@@ -1,6 +1,6 @@
 # DialectORM
 
-Tiny, fast, super-simple but versatile **Object-Relational-Mapper (ORM)** **w/ Relationships** for **PHP**, **Python**, **JavaScript**
+Tiny, fast, super-simple but versatile **Object-Relational-Mapper (ORM)** **with Relationships** for **PHP**, **Python**, **JavaScript**
 
 
 ![DialectORM](/dialectorm.jpg)

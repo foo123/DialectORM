@@ -1,5 +1,4 @@
 <?php
-
 /**
 *   DialectORM,
 *   a tiny, fast, super-simple but versatile Object-Relational-Mapper w/ Relationships for PHP, JavaScript, Python
@@ -125,7 +124,7 @@ class DialectORM
         if ( ''===$field )
         {
             return array_map(function($entity) {
-                return $entity->getPk();
+                return $entity->primaryKey();
             }, $entities);
         }
         else
@@ -330,7 +329,7 @@ class DialectORM
                         }
                         foreach($entities as $e)
                         {
-                            $kv = (string)$e->getPk();
+                            $kv = (string)$e->primaryKey();
                             $e->set($field, isset($map[$kv]) ? $map[$kv] : null);
                         }
                         break;
@@ -385,7 +384,7 @@ class DialectORM
                         }
                         foreach($entities as $e)
                         {
-                            $kv = (string)$e->getPk();
+                            $kv = (string)$e->primaryKey();
                             $e->set($field, isset($map[$kv]) ? $map[$kv] : array());
                         }
                         break;
@@ -402,7 +401,7 @@ class DialectORM
                         $map = array();
                         foreach($rentities as $re)
                         {
-                            $map[(string)$re->getPk()] = $re;
+                            $map[(string)$re->primaryKey()] = $re;
                         }
                         foreach($entities as $e)
                         {
@@ -468,7 +467,7 @@ class DialectORM
                         $map = array();
                         foreach($rentities as $re)
                         {
-                            $map[(string)$re->getPk()] = $re;
+                            $map[(string)$re->primaryKey()] = $re;
                         }
                         $relmap = array();
                         foreach($reljoin as $d)
@@ -480,7 +479,7 @@ class DialectORM
                         }
                         foreach($entities as $e)
                         {
-                            $k1 = (string)$e->getPk();
+                            $k1 = (string)$e->primaryKey();
                             $e->set($field, !empty($relmap[$k1]) ? $relmap[$k1] : array());
                         }
                         break;
@@ -637,10 +636,10 @@ class DialectORM
                         $class = $rel->b;
                         $fk = $rel->keyb;
                         $rel->data = 'hasone' === $rel->type ? $class::getAll(array(
-                            'conditions' => array("$fk"=>$this->getPk()),
+                            'conditions' => array("$fk"=>$this->primaryKey()),
                             'single' => true
                         )) : $class::getAll(array(
-                            'conditions' => array_merge($options['conditions'], array("$fk"=>$this->getPk())),
+                            'conditions' => array_merge($options['conditions'], array("$fk"=>$this->primaryKey())),
                             'order' => $options['order'],
                             'limit' => $options['limit'],
                         ));
@@ -650,14 +649,14 @@ class DialectORM
                             {
                                 foreach($rel->data as $entity)
                                 {
-                                    //$entity->set($rel->keyb, $this->getPk());
+                                    //$entity->set($rel->keyb, $this->primaryKey());
                                     $entity->set($mirrorRel->field, $this, array('recurse'=>false));
                                 }
                             }
                             else
                             {
                                 $entity = $rel->data;
-                                //$entity->set($rel->keyb, $this->getPk());
+                                //$entity->set($rel->keyb, $this->primaryKey());
                                 $entity->set($mirrorRel->field, $this, array('recurse'=>false));
                             }
                         }
@@ -684,7 +683,7 @@ class DialectORM
                             ->Select($fields)
                             ->From($tbl)
                             ->Join($jtbl, "{$pk}={$fk}", 'inner')
-                            ->Where(array_merge($options['conditions'], array("$fkthis"=>$this->getPk())))
+                            ->Where(array_merge($options['conditions'], array("$fkthis"=>$this->primaryKey())))
                         ;
                         if ( !empty($options['order']) )
                         {
@@ -709,7 +708,7 @@ class DialectORM
         return $default;
     }
 
-    public function getPk($default=0)
+    public function primaryKey($default=0)
     {
         return $this->get(static::$pk, $default);
     }
@@ -792,7 +791,7 @@ class DialectORM
                 $pks = static::pluck($rel->data);
                 foreach($data as $d)
                 {
-                    $dpk = $d->getPk();
+                    $dpk = $d->primaryKey();
                     // add entities that do not exist already
                     if ( empty($dpk) || !in_array($dpk, $pks) )
                     {
@@ -810,7 +809,7 @@ class DialectORM
                 switch($mirrorRel->type)
                 {
                     case 'belongsto':
-                        $pk = $this->getPk();
+                        $pk = $this->primaryKey();
                         if (is_array($rel->data))
                         {
                             foreach($rel->data as $entity)
@@ -882,7 +881,7 @@ class DialectORM
         {
             throw new DialectORMException('Undefined Field: "'.$field.'" in ' . get_class($this) . ' via assoc()', 1);
         }
-        if ( !empty($id = $this->getPk()) )
+        if ( !empty($id = $this->primaryKey()) )
         {
             $rel = static::$relationships[$field];
             $type = strtolower($rel[0]); $class = $rel[1];
@@ -894,7 +893,7 @@ class DialectORM
                     foreach($entity as $ent)
                     {
                         if ( !($ent instanceof $class) ) continue;
-                        $eid = $ent->getPk();
+                        $eid = $ent->primaryKey();
                         if ( empty($eid) ) continue;
                         $notexists = empty($this->db()->get(
                             $this->sql()->clear()
@@ -919,8 +918,8 @@ class DialectORM
                     }
                     break;
                 case 'belongsto':
-                    if ( ($entity instanceof $class) && !empty($entity->getPk()) )
-                        $this->set($rel[2], $entity->getPk())->save();
+                    if ( ($entity instanceof $class) && !empty($entity->primaryKey()) )
+                        $this->set($rel[2], $entity->primaryKey())->save();
                     break;
                 case 'hasone':
                     if ( $entity instanceof $class )
@@ -944,7 +943,7 @@ class DialectORM
         {
             throw new DialectORMException('Undefined Field: "'.$field.'" in ' . get_class($this) . ' via dissoc()', 1);
         }
-        if ( !empty($id = $this->getPk()) )
+        if ( !empty($id = $this->primaryKey()) )
         {
             $rel = static::$relationships[$field];
             $type = strtolower($rel[0]); $class = $rel[1];
@@ -956,7 +955,7 @@ class DialectORM
                     foreach($entity as $ent)
                     {
                         if ( !($ent instanceof $class) ) continue;
-                        $eid = $ent->getPk();
+                        $eid = $ent->primaryKey();
                         if ( empty($eid) ) continue;
                         $values[] = $eid;
                     }
@@ -1054,7 +1053,7 @@ class DialectORM
     public function toArray($deep=false, $diff=false, $stack=array())
     {
         $class = get_class($this);
-        //'RECURSION: ('.$class.', '.static::$pk.', '.$this->getPk().')';
+        //'RECURSION: ('.$class.', '.static::$pk.', '.$this->primaryKey().')';
         if ( in_array($class, $stack) ) return null;
         $a = array();
         foreach(static::$fields as $field)
@@ -1113,7 +1112,7 @@ class DialectORM
             if ( in_array($rel->type, array('belongsto')) && ($entity instanceof $class) )
             {
                 $entity->save();
-                $this->set($rel->keyb, $entity->getPk());
+                $this->set($rel->keyb, $entity->primaryKey());
             }
         }
 
@@ -1193,7 +1192,7 @@ class DialectORM
                     foreach($entities as $entity)
                     {
                         if ( !($entity instanceof $class) ) continue;
-                        $eid = $entity->getPk();
+                        $eid = $entity->primaryKey();
                         if ( empty($eid) ) continue;
                         // the most cross-platform way seems to do an extra select to check if relation already exists
                         // https://stackoverflow.com/questions/13041023/insert-on-duplicate-key-update-nothing-using-mysql/13041065

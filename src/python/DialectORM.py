@@ -239,7 +239,7 @@ class DialectORM:
     @staticmethod
     def pluck(entities, field=''):
         if ''==field:
-            return list(map(lambda entity: entity.getPk(), entities))
+            return list(map(lambda entity: entity.primaryKey(), entities))
         else:
             return list(map(lambda entity: entity.get(field), entities))
 
@@ -425,7 +425,7 @@ class DialectORM:
                     for re in rentities:
                         mapp[str(re.get(fk))] = re
                     for e in entities:
-                        kv = str(e.getPk())
+                        kv = str(e.primaryKey())
                         e.set(field, mapp[kv] if kv in mapp else None)
 
                 elif 'hasmany'==type:
@@ -480,7 +480,7 @@ class DialectORM:
                         if fkv not in mapp: mapp[fkv] = [re]
                         else: mapp[fkv].append(re)
                     for e in entities:
-                        kv = str(e.getPk())
+                        kv = str(e.primaryKey())
                         e.set(field, mapp[kv] if kv in mapp else [])
 
                 elif 'belongsto'==type:
@@ -498,7 +498,7 @@ class DialectORM:
                     })
                     mapp = {}
                     for re in rentities:
-                        mapp[str(re.getPk())] = re
+                        mapp[str(re.primaryKey())] = re
                     for e in entities:
                         fkv = str(e.get(fk))
                         e.set(field, mapp[fkv] if fkv in mapp else None, {'recurse':True,'merge':True})
@@ -566,7 +566,7 @@ class DialectORM:
 
                     mapp = {}
                     for re in rentities:
-                        mapp[str(re.getPk())] = re
+                        mapp[str(re.primaryKey())] = re
                     relmapp = {}
                     for d in reljoin:
                         k1 = str(d[pk2])
@@ -574,7 +574,7 @@ class DialectORM:
                         if k1 not in relmapp: relmapp[k1] = [mapp[k2]]
                         else: relmapp[k1].append(mapp[k2])
                     for e in entities:
-                        k1 = str(e.getPk())
+                        k1 = str(e.primaryKey())
                         e.set(field, relmapp[k1] if k1 in relmapp else [])
 
         return entities[0] if retSingle else entities
@@ -706,14 +706,14 @@ class DialectORM:
                     fk = rel.keyb
                     if 'hasone'==rel.type:
                         conditions = {}
-                        conditions[fk] = self.getPk()
+                        conditions[fk] = self.primaryKey()
                         rel.data = cls.getAll({
                             'conditions' : conditions,
                             'single' : True
                         })
                     else:
                         conditions = options['conditions'].copy()
-                        conditions[fk] = self.getPk()
+                        conditions[fk] = self.primaryKey()
                         rel.data = cls.getAll({
                             'conditions' : conditions,
                             'order' : options['order'],
@@ -724,11 +724,11 @@ class DialectORM:
                         if mirrorRel:
                             if isinstance(rel.data, list):
                                 for entity in rel.data:
-                                    #entity.set(rel.keyb, self.getPk())
+                                    #entity.set(rel.keyb, self.primaryKey())
                                     entity.set(mirrorRel['field'], self, {'recurse':False})
                             else:
                                 entity = rel.data
-                                #entity.set(rel.keyb, self.getPk())
+                                #entity.set(rel.keyb, self.primaryKey())
                                 entity.set(mirrorRel['field'], self, {'recurse':False})
                 elif 'belongsto'==rel.type:
                     cls = rel.b
@@ -748,7 +748,7 @@ class DialectORM:
                     fields = cls.fields
                     for i in range(len(fields)): fields[i] = tbl+'.'+fields[i]+' AS '+fields[i]
                     conditions = options['conditions'].copy()
-                    conditions[fkthis] = self.getPk()
+                    conditions[fkthis] = self.primaryKey()
                     self.sql().clear().Select(
                         fields
                     ).From(
@@ -775,7 +775,7 @@ class DialectORM:
 
         return default
 
-    def getPk(self, default=0):
+    def primaryKey(self, default=0):
         klass = self.__class__
         return self.get(klass.pk, default)
 
@@ -848,7 +848,7 @@ class DialectORM:
             if options['merge'] and isinstance(data, list) and isinstance(rel.data, list):
                 pks = klass.pluck(rel.data)
                 for d in data:
-                    dpk = d.getPk()
+                    dpk = d.primaryKey()
                     # add entities that do not exist already
                     if empty(dpk) or (dpk not in pks):
                         rel.data.append(d)
@@ -860,7 +860,7 @@ class DialectORM:
                 mirrorRel = self._getMirrorRel(rel)
                 if mirrorRel:
                     if 'belongsto'==mirrorRel['type']:
-                        pk = self.getPk()
+                        pk = self.primaryKey()
                         if isinstance(rel.data, list):
                             for entity in rel.data:
                                 entity.set(rel.keyb, pk)
@@ -906,7 +906,7 @@ class DialectORM:
         klass = self.__class__
         if field not in klass.relationships:
             raise DialectORM.Exception('Undefined Field: "'+field+'" in ' + klass.__name__ + ' via assoc()')
-        id = self.getPk()
+        id = self.primaryKey()
         if not empty(id):
             rel = klass.relationships[field]
             type = rel[0].lower()
@@ -916,7 +916,7 @@ class DialectORM:
                 values = []
                 for ent in entity:
                     if not isinstance(ent, cls): continue
-                    eid = ent.getPk()
+                    eid = ent.primaryKey()
                     if empty(eid): continue
                     conditions = {}
                     conditions[rel[2]] = eid
@@ -941,8 +941,8 @@ class DialectORM:
                         ).sql()
                     )
             elif 'belongsto'==type:
-                if isinstance(entity, cls) and not empty(entity.getPk()):
-                    self.set(rel[2], entity.getPk()).save()
+                if isinstance(entity, cls) and not empty(entity.primaryKey()):
+                    self.set(rel[2], entity.primaryKey()).save()
             elif 'hasone'==type:
                 if isinstance(entity, cls):
                     entity.set(rel[2], id).save()
@@ -958,7 +958,7 @@ class DialectORM:
         klass = self.__class__
         if field not in klass.relationships:
             raise DialectORM.Exception('Undefined Field: "'+field+'" in ' + klass.__name__ + ' via dissoc()')
-        id = self.getPk()
+        id = self.primaryKey()
         if not empty(id):
             rel = klass.relationships[field]
             type = rel[0].lower()
@@ -968,7 +968,7 @@ class DialectORM:
                 values = []
                 for ent in entity:
                     if not isinstance(ent, cls): continue
-                    eid = ent.getPk()
+                    eid = ent.primaryKey()
                     if empty(eid): continue
                     values.append(eid)
                 if not empty( values):
@@ -1106,7 +1106,7 @@ class DialectORM:
             cls = rel.b
             if (rel.type in ['belongsto']) and isinstance(entity, cls):
                 entity.save()
-                self.set(rel.keyb, entity.getPk())
+                self.set(rel.keyb, entity.primaryKey())
 
         pk = klass.pk
         if not empty(self.isDirty):
@@ -1169,7 +1169,7 @@ class DialectORM:
                     values = []
                     for entity in entities:
                         if not isinstance(entity, cls): continue
-                        eid = entity.getPk()
+                        eid = entity.primaryKey()
                         if empty(eid): continue
                         # the most cross-platform way seems to do an extra select to check if relation already exists
                         # https://stackoverflow.com/questions/13041023/insert-on-duplicate-key-update-nothing-using-mysql/13041065
