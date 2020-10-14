@@ -175,11 +175,11 @@ function test()
     output(Post::getAll([
         'withRelated' => ['meta', 'comments', 'authors'],
         'related' => [
-            'authors' => ['clause'=>['or'=>[
+            'authors' => ['conditions'=>['clause'=>['or'=>[
                 ['name'=>['like'=>'user']],
                 ['name'=>['like'=>'foo']],
                 ['name'=>['like'=>'bar']]
-            ]]],
+            ]]]],
             'comments' => ['limit'=>1] // eager relationship loading with extra conditions, see `Dialect` lib on how to define conditions
         ]
     ]));

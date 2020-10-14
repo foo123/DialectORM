@@ -535,8 +535,11 @@ class DialectORM
                     {
                         k1 = String(reljoin[d][pk2]);
                         k2 = String(reljoin[d][fk]);
-                        if (!has(relmapp, k1)) relmapp[k1] = [mapp[k2]];
-                        else relmapp[k1].push(mapp[k2]);
+                        if (has(mapp, k2))
+                        {
+                            if (!has(relmapp, k1)) relmapp[k1] = [mapp[k2]];
+                            else relmapp[k1].push(mapp[k2]);
+                        }
                     }
                     for (e = 0; e < entities.length; e++)
                     {

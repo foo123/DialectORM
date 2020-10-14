@@ -474,8 +474,11 @@ class DialectORM
                         {
                             $k1 = (string)$d[$pk2];
                             $k2 = (string)$d[$fk];
-                            if ( !isset($relmap[$k1]) ) $relmap[$k1] = array($map[$k2]);
-                            else $relmap[$k1][] = $map[$k2];
+                            if (isset($map[$k2]))
+                            {
+                                if ( !isset($relmap[$k1]) ) $relmap[$k1] = array($map[$k2]);
+                                else $relmap[$k1][] = $map[$k2];
+                            }
                         }
                         foreach($entities as $e)
                         {

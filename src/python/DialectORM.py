@@ -571,8 +571,9 @@ class DialectORM:
                     for d in reljoin:
                         k1 = str(d[pk2])
                         k2 = str(d[fk])
-                        if k1 not in relmapp: relmapp[k1] = [mapp[k2]]
-                        else: relmapp[k1].append(mapp[k2])
+                        if k2 in mapp:
+                            if k1 not in relmapp: relmapp[k1] = [mapp[k2]]
+                            else: relmapp[k1].append(mapp[k2])
                     for e in entities:
                         k1 = str(e.primaryKey())
                         e.set(field, relmapp[k1] if k1 in relmapp else [])
