@@ -5,7 +5,7 @@ class PDODb implements IDialectORMDb
 
     private $dbh = null;
     private $conf = array();
-    private $_vendor = '';
+    private $vendorName = '';
     public $last_query = null;
     public $last_result = null;
     public $num_rows = 0;
@@ -14,7 +14,7 @@ class PDODb implements IDialectORMDb
     public function __construct($conf=array(), $vendor='')
     {
         $this->conf = (array)$conf;
-        $this->_vendor = (string)$vendor;
+        $this->vendorName = (string)$vendor;
         if ( !empty($conf) ) $this->connect($conf);
     }
 
@@ -27,7 +27,7 @@ class PDODb implements IDialectORMDb
 
     public function vendor()
     {
-        return $this->_vendor;
+        return $this->vendorName;
     }
 
     public function escapeWillQuote()
@@ -69,12 +69,12 @@ class PDODb implements IDialectORMDb
         return $this;
     }
 
-    public function query($query)
+    public function query($sql)
     {
-        $query = trim((string)$query);
+        $sql = trim((string)$sql);
 
         // initialise return
-        $this->last_query = $query;
+        $this->last_query = $sql;
         $this->num_rows = 0;
         $this->insert_id = '0';
         $this->last_result = array();
@@ -86,17 +86,17 @@ class PDODb implements IDialectORMDb
         }
 
         // Query was an insert, delete, update, replace
-        if ( preg_match('/^(insert|delete|update|replace|drop|create|alter)\\s+/i', $query) )
+        if ( preg_match('/^(insert|delete|update|replace|drop|create|alter)\\s+/i', $sql) )
         {
 
             // Perform the query and log number of affected rows
-            $this->num_rows = $this->dbh->exec($query);
+            $this->num_rows = $this->dbh->exec($sql);
 
             // If there is an error then take note of it..
             if ( $this->catchError() ) return false;
 
             // Take note of the insert_id
-            if ( preg_match("/^(insert|replace)\s+/i", $query) )
+            if ( preg_match("/^(insert|replace)\s+/i", $sql) )
             {
                 $this->insert_id = (string)@$this->dbh->lastInsertId();
             }
@@ -106,7 +106,7 @@ class PDODb implements IDialectORMDb
         else
         {
             // Perform the query and log number of affected rows
-            $sth = $this->dbh->query($query);
+            $sth = $this->dbh->query($sql);
 
             // If there is an error then take note of it..
             if ( $this->catchError() ) return false;
@@ -125,9 +125,9 @@ class PDODb implements IDialectORMDb
         }
     }
 
-    public function get($query)
+    public function get($sql)
     {
-        return $this->query($query);
+        return $this->query($sql);
     }
 
     private function catchError($throw=true)

@@ -17,7 +17,7 @@ var SELECT_RE = /^\(?select\s+/i;
 class MysqlDb extends DialectORM.IDb
 {
     conf = null;
-    _vendor = '';
+    vendorName = '';
     dbh = null;
     num_rows = 0;
     insert_id = '0';
@@ -29,7 +29,7 @@ class MysqlDb extends DialectORM.IDb
         super();
         if ( !mysql ) throw new Error('mysql2 module is not installed!');
         this.conf = conf || null;
-        this._vendor = String(vendor).trim();
+        this.vendorName = String(vendor).trim();
         if (this.conf) this.connect();
     }
 
@@ -66,7 +66,17 @@ class MysqlDb extends DialectORM.IDb
 
     vendor()
     {
-        return this._vendor;
+        return this.vendorName;
+    }
+
+    escape(v)
+    {
+        return this.connect().dbh.escape(String(v));
+    }
+
+    escapeWillQuote()
+    {
+        return true;
     }
 
     query(sql)
@@ -101,16 +111,6 @@ class MysqlDb extends DialectORM.IDb
     get(sql)
     {
         return this.query(sql);
-    }
-
-    escape(v)
-    {
-        return this.connect().dbh.escape(String(v));
-    }
-
-    escapeWillQuote()
-    {
-        return true;
     }
 }
 

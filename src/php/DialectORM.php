@@ -54,9 +54,9 @@ class DialectORM
     public static $fields = array();
     public static $relationships = array();
 
-    protected static $dependencies = array();
-    protected static $DB = null;
-    protected static $prefix = '';
+    protected static $deps = array();
+    protected static $dbh = null;
+    protected static $tblprefix = '';
 
     private $_sql = null;
 
@@ -64,36 +64,35 @@ class DialectORM
     private $data = null;
     private $isDirty = null;
 
-    public static function setDependencies($deps)
+    public static function dependencies($deps)
     {
-        DialectORM::$dependencies = array_merge(DialectORM::$dependencies, (array)$deps);
+        DialectORM::$deps = array_merge(DialectORM::$deps, (array)$deps);
     }
 
-    public static function getDependency($dep, $default=null)
+    public static function dependency($dep, $default=null)
     {
-        return isset(DialectORM::$dependencies[$dep]) ? DialectORM::$dependencies[$dep] : $default;
+        return isset(DialectORM::$deps[$dep]) ? DialectORM::$deps[$dep] : $default;
     }
 
-    public static function setDB($db)
+    public static function DBHandler($db = null)
     {
-        if ( !($db instanceof IDialectORMDb) )
-            throw new DialectORMException('DialectORM DB must implement IDialectORMDb', 1);
-        DialectORM::$DB = $db;
+        if (func_num_args())
+        {
+            if ( !($db instanceof IDialectORMDb) )
+                throw new DialectORMException('DialectORM DB must implement IDialectORMDb', 1);
+            DialectORM::$dbh = $db;
+        }
+        return DialectORM::$dbh;
     }
 
-    public static function getDB()
-    {
-        return DialectORM::$DB;
-    }
-
-    public static function getSQL()
+    public static function SQLBuilder()
     {
         if ( !class_exists('Dialect', false) )
         {
-            $entry = DialectORM::getDependency('Dialect');
+            $entry = DialectORM::dependency('Dialect');
             if ( !empty($entry) ) include($entry);
         }
-        $db = DialectORM::getDB();
+        $db = DialectORM::DBHandler();
         $sql = new Dialect($db->vendor());
         $sql->escape(array($db, 'escape'), $db->escapeWillQuote());
         if (method_exists($db, 'escapeId'))
@@ -103,20 +102,30 @@ class DialectORM
         return $sql;
     }
 
-    public static function setPrefix($prefix)
+    public static function prefix($prefix = null)
     {
-        DialectORM::$prefix = (string)$prefix;
+        if (func_num_args())
+        {
+            DialectORM::$tblprefix = (string)$prefix;
+        }
+        return DialectORM::$tblprefix;
     }
-
-    public static function getPrefix()
-    {
-        return DialectORM::$prefix;
-    }
-
 
     public static function tbl($table)
     {
-        return DialectORM::getPrefix().$table;
+        return DialectORM::prefix().$table;
+    }
+
+    public static function snake_case( $s, $sep='_' )
+    {
+        $s = preg_replace_callback('#[A-Z]#', function($m)use($sep){return $sep.strtolower($m[0]);}, lcfirst($s));
+        return $sep===substr($s, 0, 1) ? substr($s, 1) : $s;
+    }
+
+    public static function camelCase( $s, $PascalCase=false, $sep='_' )
+    {
+        $s = preg_replace_callback('#'.preg_quote($sep, '#').'([a-z])#', function($m){return strtoupper($m[1]);}, $s);
+        return $PascalCase ? ucfirst($s) : $s;
     }
 
     public static function pluck($entities, $field='')
@@ -133,31 +142,6 @@ class DialectORM
                 return $entity->get($field);
             }, $entities);
         }
-    }
-
-    public static function snake_case( $s, $sep='_' )
-    {
-        $s = preg_replace_callback('#[A-Z]#', function($m)use($sep){return $sep.strtolower($m[0]);}, lcfirst($s));
-        return $sep===substr($s, 0, 1) ? substr($s, 1) : $s;
-    }
-
-    public static function camelCase( $s, $PascalCase=false, $sep='_' )
-    {
-        $s = preg_replace_callback('#'.preg_quote($sep, '#').'([a-z])#', function($m){return strtoupper($m[1]);}, $s);
-        return $PascalCase ? ucfirst($s) : $s;
-    }
-
-    public static function getByPk($id, $default=null)
-    {
-        $pk = static::$pk;
-        $entity = DialectORM::getDB()->get(
-            DialectORM::getSQL()
-                ->Select(static::$fields)
-                ->From(DialectORM::tbl(static::$table))
-                ->Where(array("$pk"=>$id))
-                ->sql()
-        );
-        return !empty($entity) ? new static(isset($entity[0])&&is_array($entity[0]) ? (array)$entity[0] : (array)$entity) : $default;
     }
 
     public static function sorter($args=array())
@@ -241,23 +225,36 @@ class DialectORM
         }
     }
 
+    public static function fetchByPk($id, $default=null)
+    {
+        $pk = static::$pk;
+        $entity = DialectORM::DBHandler()->get(
+            DialectORM::SQLBuilder()
+                ->Select(static::$fields)
+                ->From(DialectORM::tbl(static::$table))
+                ->Where(array("$pk"=>$id))
+                ->sql()
+        );
+        return !empty($entity) ? new static(isset($entity[0])&&is_array($entity[0]) ? (array)$entity[0] : (array)$entity) : $default;
+    }
+
     public static function count($options=array())
     {
         $options = array_merge(array(
             'conditions' => array(),
         ), (array)$options);
 
-        $sql = DialectORM::getSQL()
+        $sql = DialectORM::SQLBuilder()
             ->Select('COUNT(*) AS cnt')
             ->From(DialectORM::tbl(static::$table))
             ->Where($options['conditions'])
         ;
 
-        $res = DialectORM::getDB()->get($sql->sql());
+        $res = DialectORM::DBHandler()->get($sql->sql());
         return $res[0]['cnt'];
     }
 
-    public static function getAll($options=array(), $default=array())
+    public static function fetchAll($options=array(), $default=array())
     {
         $options = array_merge(array(
             'conditions' => array(),
@@ -275,7 +272,7 @@ class DialectORM
             $default = null;
 
         $pk = static::$pk;
-        $sql = DialectORM::getSQL()
+        $sql = DialectORM::SQLBuilder()
             ->Select(static::$fields)
             ->From(DialectORM::tbl(static::$table))
             ->Where($options['conditions'])
@@ -297,7 +294,7 @@ class DialectORM
             $sql->Limit(1, 0);
         }
 
-        $entities = DialectORM::getDB()->get($sql->sql());
+        $entities = DialectORM::DBHandler()->get($sql->sql());
 
         if ( empty($entities) ) return $default;
 
@@ -319,7 +316,7 @@ class DialectORM
                         $conditions = array("$fk"=>array('in'=>$ids));
                         if ( isset($options['related'][$field]['conditions']) )
                             $conditions = array_merge($options['related'][$field]['conditions'], $conditions);
-                        $rentities = $class::getAll(array(
+                        $rentities = $class::fetchAll(array(
                             'conditions' => $conditions
                         ));
                         $map = array();
@@ -337,7 +334,7 @@ class DialectORM
                         $fk = $rel[2];
                         if (isset($options['related'][$field]['limit']))
                         {
-                            $sql = DialectORM::getSQL();
+                            $sql = DialectORM::SQLBuilder();
                             $selects = array();
                             foreach($ids as $id)
                             {
@@ -346,7 +343,7 @@ class DialectORM
                                     $conditions = array_merge($options['related'][$field]['conditions'], $conditions);
 
                                 $subquery = $sql->subquery()
-                                    ->Select('*')
+                                    ->Select($class::$fields)
                                     ->From(DialectORM::tbl($class::$table))
                                     ->Where($conditions)
                                 ;
@@ -362,7 +359,7 @@ class DialectORM
 
                                 $selects[] = $subquery->sql();
                             }
-                            $rentities = DialectORM::getDB()->get($sql->Union($selects, false)->sql());
+                            $rentities = DialectORM::DBHandler()->get($sql->Union($selects, false)->sql());
                             foreach($rentities as $i=>$re) $rentities[$i] = new $class($re);
                         }
                         else
@@ -370,7 +367,7 @@ class DialectORM
                             $conditions = array("$fk"=>array('in'=>$ids));
                             if ( isset($options['related'][$field]['conditions']) )
                                 $conditions = array_merge($options['related'][$field]['conditions'], $conditions);
-                            $rentities = $class::getAll(array(
+                            $rentities = $class::fetchAll(array(
                                 'conditions' => $conditions,
                                 'order' => isset($options['related'][$field]['order']) ? $options['related'][$field]['order'] : array()
                             ));
@@ -395,7 +392,7 @@ class DialectORM
                         $conditions = array("$rpk"=>array('in'=>$fids));
                         if ( isset($options['related'][$field]['conditions']) )
                             $conditions = array_merge($options['related'][$field]['conditions'], $conditions);
-                        $rentities = $class::getAll(array(
+                        $rentities = $class::fetchAll(array(
                             'conditions' => $conditions,
                         ));
                         $map = array();
@@ -414,8 +411,8 @@ class DialectORM
                         $fk = $rel[2];
                         $pk2 = $rel[3];
                         $rpk = $class::$pk;
-                        $reljoin = DialectORM::getDB()->get(
-                            DialectORM::getSQL()
+                        $reljoin = DialectORM::DBHandler()->get(
+                            DialectORM::SQLBuilder()
                                 ->Select('*')
                                 ->From($ab)
                                 ->Where(array("$pk2"=>array('in'=>$ids)))
@@ -424,7 +421,7 @@ class DialectORM
                         $fids = array_map(function($d)use($fk){return $d[$fk];}, $reljoin);
                         if (!empty($fids) && isset($options['related'][$field]['limit']))
                         {
-                            $sql = DialectORM::getSQL();
+                            $sql = DialectORM::SQLBuilder();
                             $selects = array();
                             foreach($fids as $id)
                             {
@@ -433,7 +430,7 @@ class DialectORM
                                     $conditions = array_merge($options['related'][$field]['conditions'], $conditions);
 
                                 $subquery = $sql->subquery()
-                                    ->Select('*')
+                                    ->Select($class::$fields)
                                     ->From(DialectORM::tbl($class::$table))
                                     ->Where($conditions)
                                 ;
@@ -449,7 +446,7 @@ class DialectORM
 
                                 $selects[] = $subquery->sql();
                             }
-                            $rentities = DialectORM::getDB()->get($sql->Union($selects, false)->sql());
+                            $rentities = DialectORM::DBHandler()->get($sql->Union($selects, false)->sql());
                             foreach($rentities as $i=>$re) $rentities[$i] = new $class($re);
                         }
                         else
@@ -459,7 +456,7 @@ class DialectORM
                             );
                             if ( isset($options['related'][$field]['conditions']) )
                                 $conditions = array_merge($options['related'][$field]['conditions'], $conditions);
-                            $rentities = $class::getAll(array(
+                            $rentities = $class::fetchAll(array(
                                 'conditions' => $conditions,
                                 'order' => isset($options['related'][$field]['order']) ? $options['related'][$field]['order'] : array()
                             ));
@@ -504,7 +501,7 @@ class DialectORM
         $ids = null;
         if ( !empty($options['withRelated']) )
         {
-            $ids = static::pluck(static::getAll(array('conditions'=>$options['conditions'], 'limit'=>$options['limit'])));
+            $ids = static::pluck(static::fetchAll(array('conditions'=>$options['conditions'], 'limit'=>$options['limit'])));
             foreach(static::$relationships as $field=>$rel)
             {
                 $type = strtolower($rel[0]); $class = $rel[1];
@@ -516,8 +513,8 @@ class DialectORM
                 elseif ( 'belongstomany'===$type )
                 {
                     // delete relation from junction table
-                    DialectORM::getDB()->query(
-                        DialectORM::getSQL()
+                    DialectORM::DBHandler()->query(
+                        DialectORM::SQLBuilder()
                             ->Delete()
                             ->From(DialectORM::tbl($rel[4]))
                             ->Where(array("{$rel[3]}"=>array('in'=>$ids)))
@@ -536,7 +533,7 @@ class DialectORM
         if ( is_array($ids) )
         {
             $pk = static::$pk;
-            $sql = DialectORM::getSQL()
+            $sql = DialectORM::SQLBuilder()
                 ->Delete()
                 ->From(DialectORM::tbl(static::$table))
                 ->Where(array("$pk"=>array('in'=>$ids)))
@@ -544,7 +541,7 @@ class DialectORM
         }
         else
         {
-            $sql = DialectORM::getSQL()
+            $sql = DialectORM::SQLBuilder()
                 ->Delete()
                 ->From(DialectORM::tbl(static::$table))
                 ->Where($options['conditions'])
@@ -557,7 +554,7 @@ class DialectORM
                     $sql->Limit($options['limit'], 0);
             }
         }
-        $res = DialectORM::getDB()->query($sql->sql());
+        $res = DialectORM::DBHandler()->query($sql->sql());
         $res = $res['affectedRows'];
         return $res;
     }
@@ -571,12 +568,12 @@ class DialectORM
 
     public function db()
     {
-        return DialectORM::getDB();
+        return DialectORM::DBHandler();
     }
 
     public function sql()
     {
-        if ( !$this->_sql ) $this->_sql = DialectORM::getSQL();
+        if ( !$this->_sql ) $this->_sql = DialectORM::SQLBuilder();
         return $this->_sql;
     }
 
@@ -638,10 +635,10 @@ class DialectORM
                     case 'hasmany':
                         $class = $rel->b;
                         $fk = $rel->keyb;
-                        $rel->data = 'hasone' === $rel->type ? $class::getAll(array(
+                        $rel->data = 'hasone' === $rel->type ? $class::fetchAll(array(
                             'conditions' => array("$fk"=>$this->primaryKey()),
                             'single' => true
-                        )) : $class::getAll(array(
+                        )) : $class::fetchAll(array(
                             'conditions' => array_merge($options['conditions'], array("$fk"=>$this->primaryKey())),
                             'order' => $options['order'],
                             'limit' => $options['limit'],
@@ -666,7 +663,7 @@ class DialectORM
                         break;
                     case 'belongsto':
                         $class = $rel->b;
-                        $rel->data = $class::getByPk($this->get($rel->keyb), null);
+                        $rel->data = $class::fetchByPk($this->get($rel->keyb), null);
                         if ( !empty($rel->data) && ($mirrorRel = $this->_getMirrorRel($rel)) )
                         {
                             $entity = $rel->data;
@@ -892,24 +889,36 @@ class DialectORM
             {
                 case 'belongstomany':
                     $jtbl = DialectORM::tbl($rel[4]);
+                    $eids = array();
+                    foreach($entity as $ent)
+                    {
+                        if ( !($ent instanceof $class) ) continue;
+                        $eid = $ent->primaryKey();
+                        if ( empty($eid) ) continue;
+                        $eids[] = $eid;
+                    }
+
+                    $exists = array_map(function($v) use($rel) {return (string)$v[$rel[2]];}, empty($eids) ? array() : $this->db()->get(
+                        $this->sql()->clear()
+                            ->Select($rel[2])
+                            ->From($jtbl)
+                            ->Where(array("{$rel[2]}"=>array('in'=>$eids), "{$rel[3]}"=>$id))
+                            ->sql()
+                    ));
+
                     $values = array();
                     foreach($entity as $ent)
                     {
                         if ( !($ent instanceof $class) ) continue;
                         $eid = $ent->primaryKey();
                         if ( empty($eid) ) continue;
-                        $notexists = empty($this->db()->get(
-                            $this->sql()->clear()
-                                ->Select('*')
-                                ->From($jtbl)
-                                ->Where(array("{$rel[2]}"=>$eid, "{$rel[3]}"=>$id))
-                                ->sql()
-                        ));
-                        if ( $notexists )
+                        if ( !in_array((string)$eid, $exists) )
                         {
+                            $exists[] = (string)$eid;
                             $values[] = array($eid, $id);
                         }
                     }
+
                     if ( !empty($values) )
                     {
                         $this->db()->query(
@@ -1191,26 +1200,38 @@ class DialectORM
                 {
                     $jtbl = DialectORM::tbl($rel->ab);
                     $entities = (array)$rel->data;
+                    $eids = array();
+                    foreach($entities as $entity)
+                    {
+                        if ( !($entity instanceof $class) ) continue;
+                        $eid = $entity->primaryKey();
+                        if ( empty($eid) ) continue;
+                        $eids[] = $eid;
+                    }
+
+                    // the most cross-platform way seems to do an extra select to check if relation already exists
+                    // https://stackoverflow.com/questions/13041023/insert-on-duplicate-key-update-nothing-using-mysql/13041065
+                    $exists = array_map(function($v) use($rel) {return (string)$v[$rel->keyb];}, empty($eids) ? array() : $this->db()->get(
+                        $this->sql()->clear()
+                            ->Select($rel->keyb)
+                            ->From($jtbl)
+                            ->Where(array("{$rel->keyb}"=>array('in'=>$eids), "{$rel->keya}"=>$id))
+                            ->sql()
+                    ));
+
                     $values = array();
                     foreach($entities as $entity)
                     {
                         if ( !($entity instanceof $class) ) continue;
                         $eid = $entity->primaryKey();
                         if ( empty($eid) ) continue;
-                        // the most cross-platform way seems to do an extra select to check if relation already exists
-                        // https://stackoverflow.com/questions/13041023/insert-on-duplicate-key-update-nothing-using-mysql/13041065
-                        $notexists = empty($this->db()->get(
-                            $this->sql()->clear()
-                                ->Select('*')
-                                ->From($jtbl)
-                                ->Where(array("{$rel->keyb}"=>$eid, "{$rel->keya}"=>$id))
-                                ->sql()
-                        ));
-                        if ( $notexists )
+                        if ( !in_array((string)$eid, $exists) )
                         {
+                            $exists[] = (string)$eid;
                             $values[] = array($eid, $id);
                         }
                     }
+
                     if ( !empty($values) )
                     {
                         $this->db()->query(

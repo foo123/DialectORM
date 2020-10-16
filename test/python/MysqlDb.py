@@ -10,13 +10,13 @@ def getDB(DialectORM):
         def __init__(self, conf=dict(), vendor=''):
             self.dbh = None
             self.conf = {}
-            self._vendor = ''
+            self.vendorName = ''
             self.last_query = None
             self.last_result = None
             self.num_rows = 0
             self.insert_id = '0'
             self.conf = conf
-            self._vendor = str(vendor)
+            self.vendorName = str(vendor)
             if conf: self.connect(conf)
 
         def __del__(self):
@@ -25,7 +25,7 @@ def getDB(DialectORM):
             self.dbh = None
 
         def vendor(self):
-            return self._vendor
+            return self.vendorName
 
         def escapeWillQuote(self):
             return False
@@ -63,11 +63,11 @@ def getDB(DialectORM):
             self.dbh = None
             return self
 
-        def query(self, query):
-            query = str(query).strip()
+        def query(self, sql):
+            sql = str(sql).strip()
 
             # initialise return
-            self.last_query = query
+            self.last_query = sql
             self.num_rows = 0
             self.insert_id = '0'
             self.last_result = []
@@ -77,16 +77,15 @@ def getDB(DialectORM):
                 self.connect(self.conf)
 
             # Query was an insert, delete, update, replace
-            if notSelectRE.match(query):
+            if notSelectRE.match(sql):
 
                 # Perform the query and log number of affected rows
                 cursor = self.dbh.cursor(dictionary=True)
-                cursor.execute(query)
+                cursor.execute(sql)
 
                 # Take note of the insert_id
-                if insertReplaceRE.match(query):
+                if insertReplaceRE.match(sql):
                     self.insert_id = str(cursor.lastrowid)
-
 
                 self.dbh.commit()
 
@@ -99,9 +98,7 @@ def getDB(DialectORM):
             else:
                 # Perform the query and log number of affected rows
                 cursor = self.dbh.cursor(dictionary=True)
-                cursor.execute(query)
-
-                is_insert = False
+                cursor.execute(sql)
 
                 # Store Query Results
                 self.last_result = cursor.fetchall()
@@ -112,7 +109,7 @@ def getDB(DialectORM):
                 return self.last_result
 
 
-        def get(self, query):
-            return self.query(query)
+        def get(self, sql):
+            return self.query(sql)
 
     return MysqlDb

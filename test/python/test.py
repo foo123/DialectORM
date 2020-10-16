@@ -29,10 +29,10 @@ else:
 from MysqlDb import getDB
 from Dialect import Dialect
 
-DialectORM.setDependencies({
+DialectORM.dependencies({
     'Dialect' : Dialect # provide actual class, i.e Dialect or directory of module, i.e DIR
 })
-DialectORM.setDB(getDB(DialectORM)({
+DialectORM.DBHandler(getDB(DialectORM)({
     'db' : 'dialectorm',
     'user' : 'dialectorm',
     'password' : 'dialectorm'
@@ -137,10 +137,10 @@ def test():
     output('Posts: ' + str(Post.count()))
     output('Users: ' + str(User.count()))
 
-    #post = Post({'content':'another py post..'})
-    #post.setComments([Comment({'content':'still another py comment..'})])
-    #post.setComments([Comment({'content':'one more py comment..'})], {'merge':True})
-    #post.setAuthors([User({'name':'another py user'})])
+    #post = Post({'content':'yet another py post..'})
+    #post.setComments([Comment({'content':'yet still another py comment..'})])
+    #post.setComments([Comment({'content':'yet one more py comment..'})], {'merge':True})
+    #post.setAuthors([User({'name':'yet another py user'}), User.fetchByPk(4)])
     #post.setMeta(PostMeta({'status':'approved','type':'article'}))
     #post.save({'withRelated':True})
 
@@ -148,12 +148,12 @@ def test():
     #post2.save()
 
     print('Posts:')
-    output(Post.getAll({'withRelated' : ['meta', 'comments', 'authors']}))
+    output(Post.fetchAll({'withRelated' : ['meta', 'comments', 'authors']}))
 
     #post2.delete()
 
     print('Posts:')
-    output(Post.getAll({
+    output(Post.fetchAll({
         'withRelated' : ['meta', 'comments', 'authors'],
         'related' : {
             'authors' : {'conditions':{'clause':{'or':[

@@ -1,5 +1,5 @@
-Posts: 6
-Users: 6
+Posts: 9
+Users: 9
 Posts:
 [
     {
@@ -151,6 +151,102 @@ Posts:
                 "name": "another js user"
             }
         ]
+    },
+    {
+        "id": 16,
+        "content": "yet another php post..",
+        "meta": {
+            "id": 4,
+            "status": "approved",
+            "type": "article",
+            "post_id": 16
+        },
+        "comments": [
+            {
+                "id": 22,
+                "content": "yet still another php comment..",
+                "post_id": 16
+            },
+            {
+                "id": 23,
+                "content": "yet one more php comment..",
+                "post_id": 16
+            }
+        ],
+        "authors": [
+            {
+                "id": 3,
+                "name": "php user"
+            },
+            {
+                "id": 9,
+                "name": "yet another php user"
+            }
+        ]
+    },
+    {
+        "id": 17,
+        "content": "yet another py post..",
+        "meta": {
+            "id": 5,
+            "status": "approved",
+            "type": "article",
+            "post_id": 17
+        },
+        "comments": [
+            {
+                "id": 24,
+                "content": "yet still another py comment..",
+                "post_id": 17
+            },
+            {
+                "id": 25,
+                "content": "yet one more py comment..",
+                "post_id": 17
+            }
+        ],
+        "authors": [
+            {
+                "id": 4,
+                "name": "py user"
+            },
+            {
+                "id": 10,
+                "name": "yet another py user"
+            }
+        ]
+    },
+    {
+        "id": 18,
+        "content": "yet another js post..",
+        "meta": {
+            "id": 6,
+            "status": "approved",
+            "type": "article",
+            "post_id": 18
+        },
+        "comments": [
+            {
+                "id": 26,
+                "content": "yet still another js comment..",
+                "post_id": 18
+            },
+            {
+                "id": 27,
+                "content": "yet one more js comment..",
+                "post_id": 18
+            }
+        ],
+        "authors": [
+            {
+                "id": 5,
+                "name": "js user"
+            },
+            {
+                "id": 11,
+                "name": "yet another js user"
+            }
+        ]
     }
 ]
 Posts:
@@ -272,6 +368,87 @@ Posts:
             {
                 "id": 8,
                 "name": "another js user"
+            }
+        ]
+    },
+    {
+        "id": 16,
+        "content": "yet another php post..",
+        "meta": {
+            "id": 4,
+            "status": "approved",
+            "type": "article",
+            "post_id": 16
+        },
+        "comments": [
+            {
+                "id": 22,
+                "content": "yet still another php comment..",
+                "post_id": 16
+            }
+        ],
+        "authors": [
+            {
+                "id": 3,
+                "name": "php user"
+            },
+            {
+                "id": 9,
+                "name": "yet another php user"
+            }
+        ]
+    },
+    {
+        "id": 17,
+        "content": "yet another py post..",
+        "meta": {
+            "id": 5,
+            "status": "approved",
+            "type": "article",
+            "post_id": 17
+        },
+        "comments": [
+            {
+                "id": 24,
+                "content": "yet still another py comment..",
+                "post_id": 17
+            }
+        ],
+        "authors": [
+            {
+                "id": 4,
+                "name": "py user"
+            },
+            {
+                "id": 10,
+                "name": "yet another py user"
+            }
+        ]
+    },
+    {
+        "id": 18,
+        "content": "yet another js post..",
+        "meta": {
+            "id": 6,
+            "status": "approved",
+            "type": "article",
+            "post_id": 18
+        },
+        "comments": [
+            {
+                "id": 26,
+                "content": "yet still another js comment..",
+                "post_id": 18
+            }
+        ],
+        "authors": [
+            {
+                "id": 5,
+                "name": "js user"
+            },
+            {
+                "id": 11,
+                "name": "yet another js user"
             }
         ]
     }

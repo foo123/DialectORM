@@ -39,10 +39,10 @@ define('DIR', dirname(__FILE__));
 include(DIR.'/../../src/php/DialectORM.php');
 include(DIR.'/PDODb.php');
 
-DialectORM::setDependencies([
+DialectORM::dependencies([
     'Dialect' => DIR.'/Dialect.php',
 ]);
-DialectORM::setDB(new PDODb([
+DialectORM::DBHandler(new PDODb([
     'dsn' => 'mysql:host=localhost;dbname=dialectorm',
     'user' => 'dialectorm',
     'password' => 'dialectorm'
@@ -192,7 +192,7 @@ $post->save(['withRelated'=>['comments','authors']]);
 //$post->delete(['withRelated'=>true]);
 
 $count = Post::count(['conditions'=>[/*..*/]]);
-$posts = Post::getAll(['withRelated'=>['comments','authors']]); // eager load of relationships, no N+1 problem
+$posts = Post::fetchAll(['withRelated'=>['comments','authors']]); // eager load of relationships, no N+1 problem
 
-//foreach(Post::getAll() as $post) $post->getComments(); // lazy load of relationships, N+1 problem
+//foreach(Post::fetchAll() as $post) $post->getComments(); // lazy load of relationships, N+1 problem
 ```

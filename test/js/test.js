@@ -2,10 +2,10 @@ let DialectORM = require('../../src/js/DialectORM.js');
 let Dialect = require('./Dialect.js');
 let MysqlDb = require('./MysqlDb.js')(DialectORM);
 
-DialectORM.setDependencies({
+DialectORM.dependencies({
     'Dialect' : Dialect // provide actual class, i.e Dialect or path of module
 });
-DialectORM.setDB(new MysqlDb({
+DialectORM.DBHandler(new MysqlDb({
     'database' : 'dialectorm',
     'user' : 'dialectorm',
     'password' : 'dialectorm'
@@ -153,10 +153,10 @@ async function test()
     output('Posts: ' + String(await Post.count()));
     output('Users: ' + String(await User.count()));
 
-    /*let post = new Post({'content':'another js post..'});
-    post.setComments([new Comment({'content':'still another js comment..'})]);
-    post.setComments([new Comment({'content':'one more js comment..'})], {'merge':true});
-    post.setAuthors([new User({'name':'another js user'})]);
+    /*let post = new Post({'content':'yet another js post..'});
+    post.setComments([new Comment({'content':'yet still another js comment..'})]);
+    post.setComments([new Comment({'content':'yet one more js comment..'})], {'merge':true});
+    post.setAuthors([new User({'name':'yet another js user'}), await User.fetchByPk(5)]);
     post.setMeta(new PostMeta({'status':'approved','type':'article'}));
     await post.save({'withRelated':true});*/
 
@@ -164,12 +164,12 @@ async function test()
     await post2.save();*/
 
     print('Posts:');
-    output(await Post.getAll({'withRelated' : ['meta', 'comments', 'authors']}));
+    output(await Post.fetchAll({'withRelated' : ['meta', 'comments', 'authors']}));
 
     //await post2.del();
 
     print('Posts:');
-    output(await Post.getAll({
+    output(await Post.fetchAll({
         'withRelated' : ['meta', 'comments', 'authors'],
         'related' : {
             'authors' : {'conditions':{'clause':{'or':[

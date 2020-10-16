@@ -4,10 +4,10 @@ define('DIR', dirname(__FILE__));
 include(DIR.'/../../src/php/DialectORM.php');
 include(DIR.'/PDODb.php');
 
-DialectORM::setDependencies([
+DialectORM::dependencies([
     'Dialect' => DIR.'/Dialect.php',
 ]);
-DialectORM::setDB(new PDODb([
+DialectORM::DBHandler(new PDODb([
     'dsn' => 'mysql:host=localhost;dbname=dialectorm',
     'user' => 'dialectorm',
     'password' => 'dialectorm'
@@ -156,10 +156,10 @@ function test()
     output('Posts: ' . (string)Post::count());
     output('Users: ' . (string)User::count());
 
-    /*$post = new Post(['content'=>'another php post..']);
-    $post->setComments([new Comment(['content'=>'still another php comment..'])]);
-    $post->setComments([new Comment(['content'=>'one more php comment..'])], ['merge'=>true]);
-    $post->setAuthors([new User(['name'=>'another php user'])]);
+    /*$post = new Post(['content'=>'yet another php post..']);
+    $post->setComments([new Comment(['content'=>'yet still another php comment..'])]);
+    $post->setComments([new Comment(['content'=>'yet one more php comment..'])], ['merge'=>true]);
+    $post->setAuthors([new User(['name'=>'yet another php user']), User::fetchByPk(3)]);
     $post->setMeta(new PostMeta(['status'=>'approved','type'=>'article']));
     $post->save(['withRelated'=>true]);*/
 
@@ -167,12 +167,12 @@ function test()
     $post2->save();*/
 
     print('Posts:');
-    output(Post::getAll(['withRelated' => ['meta', 'comments', 'authors']]));
+    output(Post::fetchAll(['withRelated' => ['meta', 'comments', 'authors']]));
 
     //$post2->delete();
 
     print('Posts:');
-    output(Post::getAll([
+    output(Post::fetchAll([
         'withRelated' => ['meta', 'comments', 'authors'],
         'related' => [
             'authors' => ['conditions'=>['clause'=>['or'=>[
