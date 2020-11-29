@@ -82,6 +82,7 @@ def getDB(DialectORM):
                 # Perform the query and log number of affected rows
                 cursor = self.dbh.cursor(dictionary=True)
                 cursor.execute(sql)
+                    
 
                 # Take note of the insert_id
                 if insertReplaceRE.match(sql):

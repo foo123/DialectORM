@@ -40,7 +40,7 @@ DialectORM.DBHandler(getDB(DialectORM)({
 
 class Post(DialectORM):
     table = 'posts'
-    pk = 'id'
+    pk = ['id']
     fields = ['id', 'content']
     relationships = {}
 
@@ -55,7 +55,7 @@ class Post(DialectORM):
 
 class PostMeta(DialectORM):
     table = 'postmeta'
-    pk = 'id'
+    pk = ['id']
     fields = ['id', 'status', 'type', 'post_id']
     relationships = {}
 
@@ -79,7 +79,7 @@ class PostMeta(DialectORM):
 
 class Comment(DialectORM):
     table = 'comments'
-    pk = 'id'
+    pk = ['id']
     fields = ['id', 'content', 'post_id']
     relationships = {}
 
@@ -97,7 +97,7 @@ class Comment(DialectORM):
 
 class User(DialectORM):
     table = 'users'
-    pk = 'id'
+    pk = ['id']
     fields = ['id', 'name']
     relationships = {}
 
@@ -111,18 +111,18 @@ class User(DialectORM):
         return 0 < len(x)
 
 Post.relationships = {
-    'meta' : ['hasOne', PostMeta, 'post_id'],
-    'comments' : ['hasMany', Comment, 'post_id'],
-    'authors' : ['belongsToMany', User, 'user_id', 'post_id', 'user_post']
+    'meta' : ['hasOne', PostMeta, ['post_id']],
+    'comments' : ['hasMany', Comment, ['post_id']],
+    'authors' : ['belongsToMany', User, ['user_id'], ['post_id'], 'user_post']
 }
 PostMeta.relationships = {
-    'post' : ['belongsTo', Post, 'post_id']
+    'post' : ['belongsTo', Post, ['post_id']]
 }
 Comment.relationships = {
-    'post' : ['belongsTo', Post, 'post_id']
+    'post' : ['belongsTo', Post, ['post_id']]
 }
 User.relationships = {
-    'posts' : ['belongsToMany', Post, 'post_id', 'user_id', 'user_post']
+    'posts' : ['belongsToMany', Post, ['post_id'], ['user_id'], 'user_post']
 }
 
 def output(data):

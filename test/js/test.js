@@ -14,7 +14,7 @@ DialectORM.DBHandler(new MysqlDb({
 class Post extends DialectORM
 {
     static table = 'posts';
-    static pk = 'id';
+    static pk = ['id'];
     static fields = ['id', 'content'];
     static relationships = {};
 
@@ -36,7 +36,7 @@ class Post extends DialectORM
 class PostMeta extends DialectORM
 {
     static table = 'postmeta';
-    static pk = 'id';
+    static pk = ['id'];
     static fields = ['id', 'status', 'type', 'post_id'];
     static relationships = {};
 
@@ -73,7 +73,7 @@ class PostMeta extends DialectORM
 class Comment extends DialectORM
 {
     static table = 'comments';
-    static pk = 'id';
+    static pk = ['id'];
     static fields = ['id', 'content', 'post_id'];
     static relationships = {};
 
@@ -100,7 +100,7 @@ class Comment extends DialectORM
 class User extends DialectORM
 {
     static table = 'users';
-    static pk = 'id';
+    static pk = ['id'];
     static fields = ['id', 'name'];
     static relationships = {};
 
@@ -120,18 +120,18 @@ class User extends DialectORM
     }
 }
 Post.relationships = {
-    'meta' : ['hasOne', PostMeta, 'post_id'],
-    'comments' : ['hasMany', Comment, 'post_id'],
-    'authors' : ['belongsToMany', User, 'user_id', 'post_id', 'user_post']
+    'meta' : ['hasOne', PostMeta, ['post_id']],
+    'comments' : ['hasMany', Comment, ['post_id']],
+    'authors' : ['belongsToMany', User, ['user_id'], ['post_id'], 'user_post']
 };
 PostMeta.relationships = {
-    'post' : ['belongsTo', Post, 'post_id']
+    'post' : ['belongsTo', Post, ['post_id']]
 };
 Comment.relationships = {
-    'post' : ['belongsTo', Post, 'post_id']
+    'post' : ['belongsTo', Post, ['post_id']]
 };
 User.relationships = {
-    'posts' : ['belongsToMany', Post, 'post_id', 'user_id', 'user_post']
+    'posts' : ['belongsToMany', Post, ['post_id'], ['user_id'], 'user_post']
 };
 
 function print(x)

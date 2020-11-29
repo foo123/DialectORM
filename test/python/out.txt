@@ -71,12 +71,6 @@ Posts:
     {
         "id": 13,
         "content": "another php post..",
-        "meta": {
-            "id": 1,
-            "status": "approved",
-            "type": "article",
-            "post_id": 13
-        },
         "comments": [
             {
                 "id": 16,
@@ -99,12 +93,6 @@ Posts:
     {
         "id": 14,
         "content": "another py post..",
-        "meta": {
-            "id": 2,
-            "status": "approved",
-            "type": "article",
-            "post_id": 14
-        },
         "comments": [
             {
                 "id": 18,
@@ -127,12 +115,6 @@ Posts:
     {
         "id": 15,
         "content": "another js post..",
-        "meta": {
-            "id": 3,
-            "status": "approved",
-            "type": "article",
-            "post_id": 15
-        },
         "comments": [
             {
                 "id": 20,
@@ -155,12 +137,6 @@ Posts:
     {
         "id": 16,
         "content": "yet another php post..",
-        "meta": {
-            "id": 4,
-            "status": "approved",
-            "type": "article",
-            "post_id": 16
-        },
         "comments": [
             {
                 "id": 22,
@@ -187,12 +163,6 @@ Posts:
     {
         "id": 17,
         "content": "yet another py post..",
-        "meta": {
-            "id": 5,
-            "status": "approved",
-            "type": "article",
-            "post_id": 17
-        },
         "comments": [
             {
                 "id": 24,
@@ -219,12 +189,6 @@ Posts:
     {
         "id": 18,
         "content": "yet another js post..",
-        "meta": {
-            "id": 6,
-            "status": "approved",
-            "type": "article",
-            "post_id": 18
-        },
         "comments": [
             {
                 "id": 26,
@@ -305,12 +269,6 @@ Posts:
     {
         "id": 13,
         "content": "another php post..",
-        "meta": {
-            "id": 1,
-            "status": "approved",
-            "type": "article",
-            "post_id": 13
-        },
         "comments": [
             {
                 "id": 16,
@@ -328,12 +286,6 @@ Posts:
     {
         "id": 14,
         "content": "another py post..",
-        "meta": {
-            "id": 2,
-            "status": "approved",
-            "type": "article",
-            "post_id": 14
-        },
         "comments": [
             {
                 "id": 18,
@@ -351,12 +303,6 @@ Posts:
     {
         "id": 15,
         "content": "another js post..",
-        "meta": {
-            "id": 3,
-            "status": "approved",
-            "type": "article",
-            "post_id": 15
-        },
         "comments": [
             {
                 "id": 20,
@@ -374,12 +320,6 @@ Posts:
     {
         "id": 16,
         "content": "yet another php post..",
-        "meta": {
-            "id": 4,
-            "status": "approved",
-            "type": "article",
-            "post_id": 16
-        },
         "comments": [
             {
                 "id": 22,
@@ -401,12 +341,6 @@ Posts:
     {
         "id": 17,
         "content": "yet another py post..",
-        "meta": {
-            "id": 5,
-            "status": "approved",
-            "type": "article",
-            "post_id": 17
-        },
         "comments": [
             {
                 "id": 24,
@@ -428,12 +362,6 @@ Posts:
     {
         "id": 18,
         "content": "yet another js post..",
-        "meta": {
-            "id": 6,
-            "status": "approved",
-            "type": "article",
-            "post_id": 18
-        },
         "comments": [
             {
                 "id": 26,

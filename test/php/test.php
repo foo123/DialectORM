@@ -16,12 +16,12 @@ DialectORM::DBHandler(new PDODb([
 class Post extends DialectORM
 {
     public static $table = 'posts';
-    public static $pk = 'id';
+    public static $pk = ['id'];
     public static $fields = ['id', 'content'];
     public static $relationships = [
-        'meta' => ['hasOne', 'PostMeta', 'post_id'],
-        'comments' => ['hasMany', 'Comment', 'post_id'],
-        'authors' => ['belongsToMany', 'User', 'user_id', 'post_id', 'user_post'],
+        'meta' => ['hasOne', 'PostMeta', ['post_id']],
+        'comments' => ['hasMany', 'Comment', ['post_id']],
+        'authors' => ['belongsToMany', 'User', ['user_id'], ['post_id'], 'user_post'],
     ];
 
     public function typeId($x)
@@ -43,10 +43,10 @@ class Post extends DialectORM
 class PostMeta extends DialectORM
 {
     public static $table = 'postmeta';
-    public static $pk = 'id';
+    public static $pk = ['id'];
     public static $fields = ['id', 'status', 'type', 'post_id'];
     public static $relationships = [
-        'post' => ['belongsTo', 'Post', 'post_id']
+        'post' => ['belongsTo', 'Post', ['post_id']]
     ];
 
     public function typeId($x)
@@ -83,10 +83,10 @@ class PostMeta extends DialectORM
 class Comment extends DialectORM
 {
     public static $table = 'comments';
-    public static $pk = 'id';
+    public static $pk = ['id'];
     public static $fields = ['id', 'content', 'post_id'];
     public static $relationships = [
-        'post' => ['belongsTo', 'Post', 'post_id'],
+        'post' => ['belongsTo', 'Post', ['post_id']],
     ];
 
     public function typeId($x)
@@ -113,10 +113,10 @@ class Comment extends DialectORM
 class User extends DialectORM
 {
     public static $table = 'users';
-    public static $pk = 'id';
+    public static $pk = ['id'];
     public static $fields = ['id', 'name'];
     public static $relationships = [
-        'posts' => ['belongsToMany', 'Post', 'post_id', 'user_id', 'user_post'],
+        'posts' => ['belongsToMany', 'Post', ['post_id'], ['user_id'], 'user_post'],
     ];
 
     public function typeId($x)

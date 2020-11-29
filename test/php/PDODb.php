@@ -90,7 +90,13 @@ class PDODb implements IDialectORMDb
         {
 
             // Perform the query and log number of affected rows
-            $this->num_rows = $this->dbh->exec($sql);
+            try {
+                $this->num_rows = $this->dbh->exec($sql);
+            } catch (Exception $e) {
+                $this->num_rows = 0;
+                throw new Exception($e->getMessage() . ', Query: ' . $this->last_query, 1);
+                return false;
+            }
 
             // If there is an error then take note of it..
             if ( $this->catchError() ) return false;
@@ -106,7 +112,12 @@ class PDODb implements IDialectORMDb
         else
         {
             // Perform the query and log number of affected rows
-            $sth = $this->dbh->query($sql);
+            try {
+                $sth = $this->dbh->query($sql);
+            } catch (Exception $e) {
+                throw new Exception($e->getMessage() . ', Query: ' . $this->last_query, 1);
+                return false;
+            }
 
             // If there is an error then take note of it..
             if ( $this->catchError() ) return false;
