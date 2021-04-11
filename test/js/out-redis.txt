@@ -1,0 +1,8 @@
+{
+    "content": "hello redis2!",
+    "id": 2
+}
+{
+    "content": "hello redis2!",
+    "id": 2
+}

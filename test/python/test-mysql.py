@@ -26,7 +26,7 @@ else:
     pass
 
 
-from MysqlDb import getDB
+from sql.mysql import getDB
 from Dialect import Dialect
 
 DialectORM.dependencies({

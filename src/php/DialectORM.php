@@ -1,9 +1,9 @@
 <?php
 /**
 *   DialectORM,
-*   tiny, fast, super-simple but versatile Object-Relational-Mapper with Relationships for PHP, JavaScript, Python
+*   tiny, fast, super-simple but versatile Object-Relational-Mapper with Relationships and Object-NoSql-Mapper for PHP, JavaScript, Python
 *
-*   @version: 1.1.0
+*   @version: 2.0.0
 *   https://github.com/foo123/DialectORM
 **/
 
@@ -18,7 +18,23 @@ interface IDialectORMDb
     public function get($sql);
 }
 
+interface IDialectORMNoSql
+{
+    public function vendor();
+    public function supportsPartialUpdates();
+    public function supportsCollectionQueries();
+    public function insert($collection, $key, $data);
+    public function update($collection, $key, $data);
+    public function delete($collection, $key);
+    public function find($collection, $key);
+    public function findAll($collection, $data);
+}
+
 class DialectORMException extends Exception
+{
+}
+
+class DialectNoSqlException extends Exception
 {
 }
 
@@ -47,7 +63,7 @@ class DialectORMRelation
 
 class DialectORM
 {
-    const VERSION = '1.1.0';
+    const VERSION = '2.0.0';
 
     public static $table = null;
     public static $pk = null;
@@ -58,6 +74,7 @@ class DialectORM
     protected static $dbh = null;
     protected static $tblprefix = '';
 
+    private $_db = null;
     private $_sql = null;
 
     private $relations = array();
@@ -136,6 +153,7 @@ class DialectORM
     {
         if (is_array($k))
         {
+            $v = (array)$v;
             for ($i = 0, $n = count($k); $i < $n; $i++)
                 $conditions[$prefix . $k[$i]] = $v[$i];
         }
@@ -688,7 +706,8 @@ class DialectORM
 
     public function db()
     {
-        return DialectORM::DBHandler();
+        if ( !$this->_db ) $this->_db = DialectORM::DBHandler();
+        return $this->_db;
     }
 
     public function sql()
@@ -1452,6 +1471,404 @@ class DialectORM
                     'conditions' => DialectORM::key($pk, $id, array()),
                     'withRelated' => $options['withRelated']
                 ));
+            }
+            $this->clear();
+        }
+
+        return $res;
+    }
+}
+
+class DialectNoSql
+{
+    const VERSION = '2.0.0';
+
+    public static $collection = null;
+    public static $pk = null;
+
+    protected static $strh = null;
+
+    private $_str = null;
+    private $data = null;
+    private $isDirty = null;
+
+    public static function NoSqlHandler($store = null)
+    {
+        if (func_num_args())
+        {
+            if (! ($store instanceof IDialectORMNoSql))
+                throw new DialectNoSqlException('DialectNoSql Store must implement IDialectORMNoSql', 1);
+            DialectNoSql::$strh = $store;
+        }
+        return DialectNoSql::$strh;
+    }
+
+    public static function snake_case($s, $sep = '_')
+    {
+        $s = preg_replace_callback('#[A-Z]#', function($m) use ($sep) {return $sep . strtolower($m[0]);}, lcfirst($s));
+        return $sep === substr($s, 0, 1) ? substr($s, 1) : $s;
+    }
+
+    public static function camelCase($s, $PascalCase = false, $sep = '_')
+    {
+        $s = preg_replace_callback('#'.preg_quote($sep, '#').'([a-z])#', function($m) {return strtoupper($m[1]);}, $s);
+        return $PascalCase ? ucfirst($s) : $s;
+    }
+
+    public static function key($k, $v, $conditions = array(), $prefix = '')
+    {
+        if (is_array($k))
+        {
+            $v = (array)$v;
+            for ($i = 0, $n = count($k); $i < $n; $i++)
+                $conditions[$prefix . $k[$i]] = $v[$i];
+        }
+        else
+        {
+            $conditions[$prefix . $k] = $v;
+        }
+        return $conditions;
+    }
+
+    public static function emptykey($k)
+    {
+        if (is_array($k))
+            return empty($k) || (count($k) > count(array_filter($k, function($ki) {return ! empty($ki);})));
+        else
+            return empty($k);
+    }
+
+    public static function pluck($entities, $field = '')
+    {
+        if ('' === $field)
+        {
+            return array_map(function($entity) {
+                return $entity->primaryKey();
+            }, $entities);
+        }
+        else
+        {
+            return array_map(function($entity) use ($field) {
+                return $entity->get($field);
+            }, $entities);
+        }
+    }
+
+    public static function sorter($args = array())
+    {
+        // Array multi - sorter utility
+        // returns a sorter that can (sub-)sort by multiple (nested) fields
+        // each ascending or descending independantly
+
+        /*$args = func_get_args( );*/
+        // + before a (nested) field indicates ascending sorting (default),
+        // example "+a.b.c"
+        // - before a (nested) field indicates descending sorting,
+        // example "-b.c.d"
+        $l = count($args);
+        if ($l)
+        {
+            $step = 1;
+            $sorter = array();
+            $variables = array();
+            $sorter_args = array();
+            $filter_args = array();
+            for ($i = $l-1; $i >= 0; $i--)
+            {
+                $field = $args[$i];
+                // if is array, it contains a filter function as well
+                array_unshift($filter_args, '$f' . $i);
+                if (is_array($field))
+                {
+                    array_unshift($sorter_args, $field[1]);
+                    $field = $field[0];
+                }
+                else
+                {
+                    array_unshift($sorter_args, null);
+                }
+                $field = (string)$field;
+                $dir = substr($field, 0, 1);
+                if ('-' === $dir)
+                {
+                    $desc = true;
+                    $field = substr($field, 1);
+                }
+                elseif ('+' === $dir)
+                {
+                    $desc = false;
+                    $field = substr($field, 1);
+                }
+                else
+                {
+                    // default ASC
+                    $desc = false;
+                }
+                $field = strlen($field) ? implode('', array_map(function($f) {return !strlen($f) ? '' : (preg_match('#^\\d+$#', $f) ? ('['.$f.']') : ('->get'.DialectNoSql::camelCase($f, true).'()'));}, explode('.', $field)))/*'["' . implode('"]["', explode('.', $field)) . '"]'*/ : '';
+                $a = '$a'.$field; $b = '$b'.$field;
+                if ($sorter_args[0])
+                {
+                    $a = 'call_user_func(' . $filter_args[0] . ',' . $a . ')';
+                    $b = 'call_user_func(' . $filter_args[0] . ',' . $b . ')';
+                }
+                $avar = '$a_'.$i; $bvar = '$b_'.$i;
+                array_unshift($variables, ''.$avar.'='.$a.';'.$bvar.'='.$b.';');
+                $lt = $desc ?(''.$step):('-'.$step); $gt = $desc ?('-'.$step):(''.$step);
+                array_unshift($sorter, "(".$avar." < ".$bvar." ? ".$lt." : (".$avar." > ".$bvar." ? ".$gt." : 0))");
+                $step <<= 1;
+            }
+            // use actual php anonynous function/closure
+            $sorter_factory = eval('return function('.implode(',',$filter_args).'){'.implode("\n", array(
+                '$sorter = function($a,$b) use('.implode(',',$filter_args).') {',
+                '    '.implode("\n", $variables).'',
+                '    return '.implode('+', $sorter).';',
+                '};',
+                'return $sorter;'
+            )).'};');
+            return call_user_func_array($sorter_factory, $sorter_args);
+        }
+        else
+        {
+            $a = '$a'; $b = '$b'; $lt = '-1'; $gt = '1';
+            $sorter = "".$a." < ".$b." ? ".$lt." : (".$a." > ".$b." ? ".$gt." : 0)";
+            return eval('return function($a,$b){return '.$sorter.';};');
+        }
+    }
+
+    public static function fetchByPk($id, $default = null)
+    {
+        $entity = DialectNoSql::NoSqlHandler()->find(static::$collection, is_array(static::$pk) ? DialectNoSql::key(static::$pk, $id) : $id);
+        return !empty($entity) ? new static(isset($entity[0])&&is_array($entity[0]) ? (array)$entity[0] : (array)$entity) : $default;
+    }
+
+    public static function fetchAll($data = array(), $default = array())
+    {
+        if (DialectNoSql::NoSqlHandler()->supportsCollectionQueries())
+        {
+            $entities = DialectNoSql::NoSqlHandler()->findAll(static::$collection, (array)$data);
+            if (empty($entities)) return $default;
+            foreach($entities as $i => $entity)
+            {
+                $entities[$i] = new static((array)$entity);
+            }
+            return $entities;
+        }
+        return $default;
+    }
+
+    public function __construct($data = array())
+    {
+        if (is_array($data) && ! empty($data))
+            $this->_populate($data);
+    }
+
+    public function storage()
+    {
+        if (!$this->_str) $this->_str = DialectNoSql::NoSqlHandler();
+        return $this->_str;
+    }
+
+    public function get($field, $default = null, $options = array())
+    {
+        if (is_array($field))
+        {
+            $self = $this;
+            return array_map(function($i) use ($self, $field, $default, $options) {
+                return $self->get($field[$i], is_array($default) ? $default[$i] : $default, $options);
+            }, array_keys($field));
+        }
+
+        $field = (string)$field;
+
+        if (! is_array($this->data) || ! array_key_exists($field, $this->data))
+        {
+            throw new DialectNoSqlException('Undefined Field: "'.$field.'" in ' . get_class($this) . ' via get()', 1);
+        }
+
+        return $this->data[$field];
+    }
+
+    public function primaryKey($default = 0)
+    {
+        return $this->get(static::$pk, $default);
+    }
+
+    public function set($field, $val = null, $options = array())
+    {
+        if (is_array($field))
+        {
+            foreach($field as $i => $f)
+                $this->set($f, is_array($val) ? $val[$i] : $val, $options);
+            return $this;
+        }
+
+        $field = (string)$field;
+
+        $options = array_merge(array(
+            'raw' => false,
+        ), (array)$options);
+
+
+        $tval = $val;
+        if (! $options['raw'])
+        {
+            $fieldProp = DialectNoSql::camelCase($field, true);
+            $typecast = 'type' . $fieldProp;
+            if (method_exists($this, $typecast))
+            {
+                $tval = $this->{$typecast}($val);
+            }
+            $validate = 'validate' . $fieldProp;
+            if (method_exists($this, $validate))
+            {
+                $valid = $this->{$validate}($tval);
+                if (! $valid) throw new DialectNoSqlException('Value: "'.$val.'" is not valid for Field: "'.$field.'" in '.get_class($this), 1);
+            }
+        }
+        if (! is_array($this->data))
+        {
+            $this->data = array();
+            $this->isDirty = array();
+        }
+        if (! array_key_exists($field, $this->data) || ($this->data[$field] !== $tval))
+        {
+            $this->isDirty[$field] = true;
+            $this->data[$field] = $tval;
+        }
+        return $this;
+    }
+
+    public function has($field)
+    {
+        return is_array($this->data) && array_key_exists($field, $this->data);
+    }
+
+    public function clear()
+    {
+        $this->data = null;
+        $this->isDirty = null;
+        return $this;
+    }
+
+    public function beforeSave()
+    {
+    }
+
+    public function afterSave($result = 0)
+    {
+    }
+
+    public function __call($method, $args = array())
+    {
+        $prefix = substr($method, 0, 3);
+        if ('get' === $prefix)
+        {
+            return !empty($args) ? $this->get(DialectNoSql::snake_case(substr($method, 3)), $args[0], isset($args[1]) ? $args[1] : array()) : $this->get(DialectNoSql::snake_case(substr($method, 3)));
+        }
+        elseif ('set' === $prefix)
+        {
+            return $this->set(DialectNoSql::snake_case(substr($method, 3)), empty($args) ? null : $args[0], isset($args[1]) ? $args[1] : array());
+        }
+        elseif ('has' === $prefix)
+        {
+            return $this->has(DialectNoSql::snake_case(substr($method, 3)));
+        }
+        else
+        {
+            throw new BadMethodCallException('Undefined method call "'.$method.'" in ' . get_class($this), 1);
+        }
+    }
+
+    private function _populate($data)
+    {
+        if (empty($data)) return $this;
+
+        if (is_array(static::$pk))
+        {
+            $hydrateFromDB = true;
+            foreach (static::$pk as $k)
+                $hydrateFromDB = $hydrateFromDB && ! empty($data[$k]);
+        }
+        else
+        {
+            $hydrateFromDB = ! empty($data[static::$pk]);
+        }
+        foreach ($data as $field => $val)
+        {
+            $this->set($field, $val);
+        }
+        // populated from Store hydration, clear dirty flags
+        if ($hydrateFromDB) $this->isDirty = array();
+        return $this;
+    }
+
+    public function toArray($diff = false)
+    {
+        $a = array();
+        $fields = array_keys($this->data);
+        sort($fields, SORT_STRING);
+        foreach ($fields as $field)
+        {
+            if ($diff && ! isset($this->isDirty[$field])) continue;
+            $a[$field] = $this->data[$field];
+        }
+        return $a;
+    }
+
+    public function save($options = array())
+    {
+        $options = array_merge(array(
+            'update' => false,
+        ), (array)$options);
+
+        $res = 0;
+
+        if (! empty($this->isDirty))
+        {
+            $pk = static::$pk;
+            $id = $this->get($pk);
+            if (DialectNoSql::emptykey($id))
+            {
+                throw new DialectNoSqlException('Empty key in ' . get_class($this) . '::save()', 1);
+            }
+
+            $this->beforeSave();
+
+            if ($options['update'])
+            {
+                // update
+                $res = $this->storage()->update(static::$collection, is_array($pk) ? DialectNoSql::key($pk, $id) : $id, $this->toArray($this->storage()->supportsPartialUpdates()));
+            }
+            else
+            {
+                // insert
+                $res = $this->storage()->insert(static::$collection, is_array($pk) ? DialectNoSql::key($pk, $id) : $id, $this->toArray(false));
+            }
+
+
+            $this->isDirty = array();
+
+            $this->afterSave($res);
+        }
+
+        return $res;
+    }
+
+    public function delete($options = array())
+    {
+        $options = array_merge(array(
+        ), (array)$options);
+
+        $res = 0;
+
+        if (is_array($this->data))
+        {
+            $pk = static::$pk;
+            $id = $this->get($pk);
+            if (! DialectNoSql::emptykey($id))
+            {
+                // delete
+                $res = $this->storage()->delete(static::$collection, is_array($pk) ? DialectNoSql::key($pk, $id) : $id);
             }
             $this->clear();
         }

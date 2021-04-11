@@ -1,8 +1,8 @@
 ##
 #   DialectORM,
-#   tiny, fast, super-simple but versatile Object-Relational-Mapper with Relationships for PHP, JavaScript, Python
+#   tiny, fast, super-simple but versatile Object-Relational-Mapper with Relationships and Object-NoSql-Mapper for PHP, JavaScript, Python
 #
-#   @version: 1.1.0
+#   @version: 2.0.0
 #   https://github.com/foo123/DialectORM
 ##
 
@@ -162,10 +162,29 @@ class IDialectORMDb(abc.ABC):
     @abc.abstractmethod
     def get(self, sql): raise NotImplementedError
 
+class IDialectORMNoSql(abc.ABC):
+    @abc.abstractmethod
+    def vendor(self): raise NotImplementedError
+    @abc.abstractmethod
+    def supportsPartialUpdates(self): raise NotImplementedError
+    @abc.abstractmethod
+    def supportsCollectionQueries(self): raise NotImplementedError
+    @abc.abstractmethod
+    def insert(self, collection, key, data): raise NotImplementedError
+    @abc.abstractmethod
+    def update(self, collection, key, data): raise NotImplementedError
+    @abc.abstractmethod
+    def delete(self, collection, key): raise NotImplementedError
+    @abc.abstractmethod
+    def find(self, collection, key): raise NotImplementedError
+    @abc.abstractmethod
+    def findAll(self, collection, data): raise NotImplementedError
 
 class DialectORMException(Exception):
     pass
 
+class DialectNoSqlException(Exception):
+    pass
 
 class DialectORMRelation:
     def __init__(self, type, a, b, kb, ka = None, ab = None):
@@ -184,7 +203,7 @@ class DialectORM:
     https://github.com/foo123/DialectORM
     """
 
-    VERSION = '1.1.0'
+    VERSION = '2.0.0'
 
     Exception = DialectORMException
     Relation = DialectORMRelation
@@ -257,6 +276,7 @@ class DialectORM:
     @staticmethod
     def key(k, v, conditions = dict(), prefix = ''):
         if isinstance(k, (list,tuple)):
+            v = array(v)
             for i in range(len(k)):
                 conditions[prefix + k[i]] = v[i]
         else:
@@ -697,6 +717,7 @@ class DialectORM:
         return res
 
     def __init__(self, data = dict()):
+        self._db = None
         self._sql = None
         self.relations = {}
         self.data = None
@@ -705,7 +726,8 @@ class DialectORM:
             self._populate(data)
 
     def db(self):
-        return DialectORM.DBHandler()
+        if not self._db: self._db = DialectORM.DBHandler()
+        return self._db
 
     def sql(self):
         if not self._sql: self._sql = DialectORM.SQLBuilder()
@@ -721,7 +743,7 @@ class DialectORM:
             return self._getRelated(field, default, opts)
         if (not isinstance(self.data, dict)) or (field not in self.data):
             if field in klass.fields: return default
-            raise DialectORM.Exception('Undefined Field: "'+field+'" in ' + klass.__name__ + ' via get()')
+            raise DialectORM.Exception('Undefined Field: "' + field + '" in ' + klass.__name__ + ' via get()')
 
         return self.data[field]
 
@@ -849,7 +871,7 @@ class DialectORM:
             return self._setRelated(field, val, options)
 
         if field not in klass.fields:
-            raise DialectORM.Exception('Undefined Field: "'+field+'" in ' + klass.__name__ + ' via set()')
+            raise DialectORM.Exception('Undefined Field: "' + field + '" in ' + klass.__name__ + ' via set()')
 
         tval = val
         if not options['raw']:
@@ -870,7 +892,7 @@ class DialectORM:
                 validator = None
             if callable(validator):
                 valid = validator(tval)
-                if not valid: raise DialectORM.Exception('Value: "'+str(val)+'" is not valid for Field: "'+field+'" in '+klass.__name__)
+                if not valid: raise DialectORM.Exception('Value: "' + str(val) + '" is not valid for Field: "' + field + '" in ' + klass.__name__)
 
         if not isinstance(self.data, dict):
             self.data = {}
@@ -1313,5 +1335,311 @@ class DialectORM:
 
         return res
 
+
+class DialectNoSql:
+    """
+    DialectORM for Python,
+    https://github.com/foo123/DialectORM
+    """
+
+    VERSION = DialectORM.VERSION
+    Exception = DialectNoSqlException
+    INoSql = IDialectORMNoSql
+
+    collection = None
+    pk = None
+
+    strh = None
+
+    def NoSqlHandler(store = None):
+        if store is not None:
+            if not isinstance(store, IDialectORMNoSql):
+                raise DialectNoSql.Exception('DialectNoSql Store must implement DialectORM.NoSql.INoSql')
+            DialectNoSql.strh = store
+        return DialectNoSql.strh
+
+    snake_case = DialectORM.snake_case
+    camelCase = DialectORM.camelCase
+    key = DialectORM.key
+    emptykey = DialectORM.emptykey
+
+    @staticmethod
+    def pluck(entities, field = ''):
+        if '' == field:
+            return list(map(lambda entity: entity.primaryKey(), entities))
+        else:
+            return list(map(lambda entity: entity.get(field), entities))
+
+    @classmethod
+    def sorter(klass, args = list()):
+        # Array multi - sorter utility
+        # returns a sorter that can (sub-)sort by multiple (nested) fields
+        # each ascending or descending independantly
+
+        # + before a (nested) field indicates ascending sorting (default),
+        # example "+a.b.c"
+        # - before a (nested) field indicates descending sorting,
+        # example "-b.c.d"
+        l = len(args)
+        if l:
+            step = 1
+            sorter = []
+            variables = []
+            sorter_args = []
+            filter_args = [];
+            for i in range(l-1, -1, -1):
+                field = args[i]
+                # if is array, it contains a filter function as well
+                filter_args.insert(0, 'f'+str(i))
+                if isinstance(field, (list,tuple)):
+                    sorter_args.insert(0, field[1])
+                    field = field[0]
+                else:
+                    sorter_args.insert(0, None)
+                field = str(field)
+                dir = field[0]
+                if '-' == dir:
+                    desc = True
+                    field = field[1:]
+                elif '+' == dir:
+                    desc = False
+                    field = field[1:]
+                else:
+                    # default ASC
+                    desc = False
+
+                field = ''.join(list(map(lambda f: '' if not len(f) else (('['+f+']') if re.search(r'^\d+$', f) else ('.get'+DialectNoSql.camelCase(f, True)+'()')), field.split('.')))) if len(field) else ''
+                a = "a"+field
+                b = "b"+field
+                if sorter_args[0]:
+                    a = filter_args[0] + '(' + a + ')'
+                    b = filter_args[0] + '(' + b + ')'
+                avar = 'a_'+str(i)
+                bvar = 'b_'+str(i)
+                variables.insert(0, bvar+'='+b)
+                variables.insert(0, avar+'='+a)
+                lt = str(step) if desc else ('-'+str(step))
+                gt = ('-'+str(step)) if desc else str(step)
+                sorter.insert(0, "("+lt+" if "+avar+" < "+bvar+" else ("+gt+" if "+avar+" > "+bvar+" else 0))")
+                step <<= 1
+
+            # use optional custom filters as well
+            comparator = (createFunction(
+                    ','.join(filter_args),
+                    "\n".join([
+                    '    def sorter(a,b):',
+                    '        '+"\n        ".join(variables),
+                    '        return '+'+'.join(sorter),
+                    '    return sorter'
+                    ])
+                    ))(*sorter_args)
+            return functools.cmp_to_key(comparator)
+        else:
+            a = "a"
+            b = "b"
+            lt = '-1'
+            gt = '1'
+            sorter = lt+" if "+a+" < "+b+" else ("+gt+" if "+a+" > "+b+" else 0)"
+            comparator = createFunction('a,b', '    return '+sorter)
+            return functools.cmp_to_key(comparator)
+
+    @classmethod
+    def fetchByPk(klass, id, default = None):
+        entity = DialectNoSql.NoSqlHandler().find(klass.collection, DialectNoSql.key(klass.pk, id) if isinstance(klass.pk, (list,tuple)) else id)
+        return klass(entity[0] if isinstance(entity, list) else entity) if not empty(entity) else default
+
+    @classmethod
+    def fetchAll(klass, data = dict(), default = list()):
+        if DialectNoSql.NoSqlHandler().supportsCollectionQueries():
+            entities = DialectNoSql.NoSqlHandler().findAll(klass.collection, data)
+            if empty(entities): return default
+            for i in range(len(entities)):
+                entities[i] = klass(entities[i])
+            return entities
+        return default
+
+    def __init__(self, data = dict()):
+        self._str = None
+        self.data = None
+        self.isDirty = None
+        if isinstance(data, dict) and not empty(data):
+            self._populate(data)
+
+    def storage(self):
+        if not self._str: self._str = DialectNoSql.NoSqlHandler()
+        return self._str
+
+    def get(self, field, default = None, opts = dict()):
+        if isinstance(field, (list,tuple)):
+            return [self.get(f, default[i] if isinstance(default, (list,tuple)) else default, opts) for i, f in enumerate(field)]
+
+        field = str(field)
+        klass = self.__class__
+        if (not isinstance(self.data, dict)) or (field not in self.data):
+            raise DialectNoSql.Exception('Undefined Field: "' + field + '" in ' + klass.__name__ + ' via get()')
+
+        return self.data[field]
+
+    def primaryKey(self, default = 0):
+        klass = self.__class__
+        return self.get(klass.pk, default)
+
+    def set(self, field, val = None, opts = dict()):
+        if isinstance(field, (list,tuple)):
+            for i, f in enumerate(field):
+                self.set(f, val[i] if isinstance(val, (list,tuple)) else val, opts)
+            return self
+
+        field = str(field)
+        options = {
+            'raw' : False
+        }
+        options.update(opts)
+        klass = self.__class__
+
+        tval = val
+        if not options['raw']:
+            fieldProp = DialectNoSql.camelCase(field, True)
+
+            typecast = 'type' + fieldProp
+            try:
+                typecaster = getattr(self, typecast)
+            except AttributeError:
+                typecaster = None
+            if callable(typecaster):
+                tval = typecaster(val)
+
+            validate = 'validate' + fieldProp
+            try:
+                validator = getattr(self, validate)
+            except AttributeError:
+                validator = None
+            if callable(validator):
+                valid = validator(tval)
+                if not valid: raise DialectNoSql.Exception('Value: "' + str(val) + '" is not valid for Field: "' + field + '" in ' + klass.__name__)
+
+        if not isinstance(self.data, dict):
+            self.data = {}
+            self.isDirty = {}
+        if (field not in self.data) or (self.data[field] is not tval):
+            self.isDirty[field] = True
+            self.data[field] = tval
+        return self
+
+    def has(self, field):
+        field = str(field)
+        klass = self.__class__
+        return isinstance(self.data, dict) and (field in self.data)
+
+    def clear(self):
+        self.data = None
+        self.isDirty = None
+        return self
+
+    def beforeSave(self):
+        pass
+
+    def afterSave(self, result = 0):
+        pass
+
+    # magic method calls simulated
+    def __getattr__(self, method):
+        prefix = method[0:3]
+        if 'get' == prefix:
+            field = DialectNoSql.snake_case(method[3:])
+            def getter(*args):
+                return self.get(field, args[0], args[1] if 1<len(args) else {}) if len(args) else self.get(field)
+            return getter
+
+        elif 'set' == prefix:
+            field = DialectNoSql.snake_case(method[3:])
+            def setter(*args):
+                return self.set(field, None if not len(args) else args[0], args[1] if 1<len(args) else {})
+            return setter
+
+        elif 'has' == prefix:
+            field = DialectNoSql.snake_case(method[3:])
+            def haser(*args):
+                return self.has(field)
+            return haser
+
+        else:
+            raise AttributeError('Undefined access "' + method + '" in ' + self.__class__.__name__)
+
+    def _populate(self, data):
+        if empty(data): return self
+
+        klass = self.__class__
+        if isinstance(klass.pk, (list,tuple)):
+            hydrateFromDB = True
+            for k in klass.pk:
+                hydrateFromDB = hydrateFromDB and (k in data) and not empty(data[k])
+        else:
+            hydrateFromDB = (klass.pk in data) and not empty(data[klass.pk])
+        for field in data:
+            self.set(field, data[field])
+        # populated from DB hydration, clear dirty flags
+        if hydrateFromDB: self.isDirty = {}
+        return self
+
+    def toDict(self, diff = False):
+        a = {}
+        fields = sorted(self.data.keys())
+        for field in fields:
+            if diff and (field not in self.isDirty): continue
+            a[field] = self.data[field]
+        return a
+
+    def save(self, opts = dict()):
+        klass = self.__class__
+        options = {
+            'update' : False
+        }
+        options.update(opts)
+
+        res = 0
+
+        if not empty(self.isDirty):
+            pk = klass.pk
+            id = self.get(pk)
+            if DialectNoSql.emptykey(id):
+                raise DialectNoSql.Exception('Empty key in ' + klass.__name__ + '::save()')
+
+            self.beforeSave()
+
+            if options['update']:
+                # update
+                res = self.storage().update(klass.collection, DialectNoSql.key(pk, id) if isinstance(pk, (list,tuple)) else id, self.toDict(self.storage().supportsPartialUpdates()))
+            else:
+                # insert
+                res = self.storage().insert(klass.collection, DialectNoSql.key(pk, id) if isinstance(pk, (list,tuple)) else id, self.toDict(False))
+
+
+            self.isDirty = {}
+
+            self.afterSave(res)
+
+        return res
+
+    def delete(self, opts = dict()):
+        klass = self.__class__
+
+        options = {}
+        options.update(opts)
+
+        res = 0
+
+        if isinstance(self.data, dict):
+            pk = klass.pk
+            id = self.get(pk)
+            if not DialectNoSql.emptykey(id):
+                # delete
+                res = self.storage().delete(klass.collection, DialectNoSql.key(pk, id) if isinstance(pk, (list,tuple)) else id)
+            self.clear()
+
+        return res
+
+
+DialectORM.NoSql = DialectNoSql
 
 __all__ = ['DialectORM']

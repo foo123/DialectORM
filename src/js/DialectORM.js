@@ -1,8 +1,8 @@
 /**
 *   DialectORM,
-*   tiny, fast, super-simple but versatile Object-Relational-Mapper with Relationships for PHP, JavaScript, Python
+*   tiny, fast, super-simple but versatile Object-Relational-Mapper with Relationships and Object-NoSql-Mapper for PHP, JavaScript, Python
 *
-*   @version: 1.1.0
+*   @version: 2.0.0
 *   https://github.com/foo123/DialectORM
 **/
 !function( root, name, factory ){
@@ -144,6 +144,18 @@ class IDialectORMDb
     get(sql) { throw NotImplemented(); }
 }
 
+class IDialectORMNoSql
+{
+    vendor() { throw NotImplemented(); }
+    supportsPartialUpdates() { throw NotImplemented(); }
+    supportsCollectionQueries() { throw NotImplemented(); }
+    insert(collection, key, data) { throw NotImplemented(); }
+    update(collection, key, data) { throw NotImplemented(); }
+    del(collection, key) { throw NotImplemented(); }
+    find(collection, key) { throw NotImplemented(); }
+    findAll(collection, data) { throw NotImplemented(); }
+}
+
 class DialectORMException extends Error
 {
     constructor(message)
@@ -153,6 +165,14 @@ class DialectORMException extends Error
     }
 }
 
+class DialectNoSqlException extends Error
+{
+    constructor(message)
+    {
+        super(message);
+        this.name = "DialectNoSqlException";
+    }
+}
 
 class DialectORMRelation
 {
@@ -710,6 +730,7 @@ class DialectORM
         return res;
     }
 
+    _db = null;
     _sql = null;
     relations = null;
     data = null;
@@ -718,6 +739,7 @@ class DialectORM
 
     constructor(data = {})
     {
+        this._db = null;
         this._sql = null;
         this.relations = {};
         this.data = null;
@@ -733,7 +755,8 @@ class DialectORM
 
     db()
     {
-        return DialectORM.DBHandler();
+        if (!this._db) this._db = DialectORM.DBHandler();
+        return this._db;
     }
 
     sql()
@@ -759,7 +782,7 @@ class DialectORM
         if (! is_obj(this.data) || ! has(this.data, field))
         {
             if (has(klass.fields, field)) return default_;
-            throw new DialectORM.Exception('Undefined Field: "'+field+'" in ' + klass.name + ' via get()');
+            throw new DialectORM.Exception('Undefined Field: "' + field + '" in ' + klass.name + ' via get()');
         }
 
         return this.data[field];
@@ -956,7 +979,7 @@ class DialectORM
             return this._setRelated(field, val, options);
 
         if (! has(klass.fields, field))
-            throw new DialectORM.Exception('Undefined Field: "'+field+'" in ' + klass.name + ' via set()');
+            throw new DialectORM.Exception('Undefined Field: "' + field + '" in ' + klass.name + ' via set()');
 
         tval = val;
         if (! options['raw'])
@@ -973,7 +996,7 @@ class DialectORM
             if ('function' === typeof(this[validate]))
             {
                 valid = this[validate](tval);
-                if (!valid) throw new DialectORM.Exception('Value: "'+String(val)+'" is not valid for Field: "'+field+'" in '+klass.name);
+                if (!valid) throw new DialectORM.Exception('Value: "' + String(val) + '" is not valid for Field: "' + field + '" in ' + klass.name);
             }
         }
 
@@ -1280,7 +1303,7 @@ class DialectORM
         for (rel in this.relations)
             if (has(this.relations, rel))
                 this.relations[rel].data = null;
-        return this
+        return this.proxy;
     }
 
     beforeSave()
@@ -1329,13 +1352,13 @@ class DialectORM
 
         else
         {
-            throw new ReferenceError('Undefined access "'+method+'" in ' + this.constructor.name);
+            throw new ReferenceError('Undefined access "' + method + '" in ' + this.constructor.name);
         }
     }
 
     _populate(data)
     {
-        if (empty(data)) return this;
+        if (empty(data)) return this.proxy;
 
         let klass = this.constructor, hydrateFromDB, i, n;
         if (is_array(klass.pk))
@@ -1364,7 +1387,7 @@ class DialectORM
         }
         // populated from DB hydration, clear dirty flags
         if (hydrateFromDB) this.isDirty = Object.create(null);
-        return this;
+        return this.proxy;
     }
 
     toObj(deep = false, diff = false, stack = [])
@@ -1608,7 +1631,7 @@ class DialectORM
     }
 }
 
-DialectORM.VERSION = '1.1.0';
+DialectORM.VERSION = '2.0.0';
 
 DialectORM.Exception = DialectORMException;
 DialectORM.Relation = DialectORMRelation;
@@ -1684,6 +1707,7 @@ DialectORM.camelCase = function(s, PascalCase = false, sep = '_') {
 DialectORM.key = function(k, v, conditions = {}, prefix = '') {
     if (is_array(k))
     {
+        v = array(v);
         for (let i = 0, n = k.length; i < n; i++)
             conditions[prefix + k[i]] = v[i];
     }
@@ -1709,6 +1733,386 @@ DialectORM.emptykey = function(k) {
 };
 
 DialectORM.eq = eq;
+
+class DialectNoSql
+{
+    static collection = null;
+    static pk = null;
+
+    _str = null;
+    data = null;
+    isDirty = null;
+    proxy = null;
+
+    static pluck(entities, field = '')
+    {
+        if ('' === field)
+            return entities.map(entity => entity.primaryKey());
+        else
+            return entities.map(entity => entity.get(field));
+    }
+
+    static sorter(args = [])
+    {
+        // Array multi - sorter utility
+        // returns a sorter that can (sub-)sort by multiple (nested) fields
+        // each ascending or descending independantly
+        var klass = this, i, /*args = arguments,*/ l = args.length,
+            a, b, avar, bvar, variables, step, lt, gt,
+            field, filter_args, sorter_args, desc, dir, sorter;
+        // + before a (nested) field indicates ascending sorting (default),
+        // example "+a.b.c"
+        // - before a (nested) field indicates descending sorting,
+        // example "-b.c.d"
+        if (l)
+        {
+            step = 1;
+            sorter = [];
+            variables = [];
+            sorter_args = [];
+            filter_args = [];
+            for (i = l-1; i >= 0; i--)
+            {
+                field = args[i];
+                // if is array, it contains a filter function as well
+                filter_args.unshift('f' + String(i));
+                if (is_array(field))
+                {
+                    sorter_args.unshift(field[1]);
+                    field = field[0];
+                }
+                else
+                {
+                    sorter_args.unshift(null);
+                }
+                dir = field.charAt(0);
+                if ('-' === dir)
+                {
+                    desc = true;
+                    field = field.slice(1);
+                }
+                else if ('+' === dir)
+                {
+                    desc = false;
+                    field = field.slice(1);
+                }
+                else
+                {
+                    // default ASC
+                    desc = false;
+                }
+                field = field.length ? field.split('.').map(f => !f.length ? '' : (/^\d+$/.test(f) ? ('['+f+']') : ('.get'+DialectNoSql.camelCase(f, true)+'()'))).join('')/*'["' + field.split('.').join('"]["') + '"]'*/ : '';
+                a = "a"+field; b = "b"+field;
+                if (sorter_args[0])
+                {
+                    a = filter_args[0] + '(' + a + ')';
+                    b = filter_args[0] + '(' + b + ')';
+                }
+                avar = 'a_'+String(i); bvar = 'b_'+String(i);
+                variables.unshift(''+avar+'='+a+','+bvar+'='+b+'');
+                lt = desc ?(''+step):('-'+step); gt = desc ?('-'+step):(''+step);
+                sorter.unshift("("+avar+" < "+bvar+" ? "+lt+" : ("+avar+" > "+bvar+" ? "+gt+" : 0))");
+                step <<= 1;
+            }
+            // use optional custom filters as well
+            return (new Function(
+                    filter_args.join(','),
+                    ['return function(a,b) {',
+                     '  var '+variables.join(',')+';',
+                     '  return '+sorter.join('+')+';',
+                     '};'].join("\n")
+                    ))
+                    .apply(null, sorter_args);
+        }
+        else
+        {
+            a = "a"; b = "b"; lt = '-1'; gt = '1';
+            sorter = ""+a+" < "+b+" ? "+lt+" : ("+a+" > "+b+" ? "+gt+" : 0)";
+            return new Function("a,b", 'return '+sorter+';');
+        }
+    }
+
+    static async fetchByPk(id, default_ = null)
+    {
+        let klass = this, entity;
+        entity = await DialectNoSql.NoSqlHandler().find(klass.collection, is_array(klass.pk) ? DialectNoSql.key(klass.pk, id) : id);
+        return !empty(entity) ? new klass(is_array(entity) ? entity[0] : entity) : default_;
+    }
+
+    static async fetchAll(data = {}, default_ = [])
+    {
+        let klass = this, entities, i, l;
+        if (DialectNoSql.NoSqlHandler().supportsCollectionQueries())
+        {
+            entities = await DialectNoSql.NoSqlHandler().findAll(klass.collection, data);
+            if (empty(entities)) return default_;
+            for (i = 0, l = entities.length; i < l; i++)
+            {
+                entities[i] = new klass(entities[i]);
+            }
+            return entities;
+        }
+        return default_;
+    }
+
+    constructor(data = {})
+    {
+        this._str = null;
+        this.data = null;
+        this.isDirty = null;
+
+        if (is_obj(data) && ! empty(data))
+            this._populate(data);
+
+        // return the proxy
+        this.proxy = new Proxy(this, magicMethodsProxy);
+        return this.proxy;
+    }
+
+    storage()
+    {
+        if (!this._str) this._str = DialectNoSql.NoSqlHandler();
+        return this._str;
+    }
+
+    get(field, default_ = null, options = {})
+    {
+        if (is_array(field))
+        {
+            return field.map((f, i) => this.get(f, is_array(default_) ? default_[i] : default_, options));
+        }
+
+        field = String(field);
+
+        let klass = this.constructor;
+        if (! is_obj(this.data) || ! has(this.data, field))
+        {
+            throw new DialectNoSql.Exception('Undefined Field: "' + field + '" in ' + klass.name + ' via get()');
+        }
+
+        return this.data[field];
+    }
+
+    primaryKey(default_ = 0)
+    {
+        return this.get(this.constructor.pk, default_);
+    }
+
+    set(field, val = null, options = {})
+    {
+        if (is_array(field))
+        {
+            for(let i = 0, n = field.length; i < n; i++)
+                this.set(field[i], is_array(val) ? val[i] : val, options);
+            return this;
+        }
+
+        field = String(field);
+
+        let klass = this.constructor, tval, fieldProp, typecast, validate, valid;
+        options = merge({
+            'raw' : false
+        }, options);
+
+        tval = val;
+        if (! options['raw'])
+        {
+            fieldProp = DialectNoSql.camelCase(field, true);
+
+            typecast = 'type' + fieldProp;
+            if ('function' === typeof(this[typecast]))
+            {
+                tval = this[typecast](val);
+            }
+
+            validate = 'validate' + fieldProp;
+            if ('function' === typeof(this[validate]))
+            {
+                valid = this[validate](tval);
+                if (!valid) throw new DialectNoSql.Exception('Value: "' + String(val) + '" is not valid for Field: "' + field + '" in ' + klass.name);
+            }
+        }
+
+        if (! this.data)
+        {
+            this.data = Object.create(null);
+            this.isDirty = Object.create(null);
+        }
+        if (! has(this.data, field) || (this.data[field] !== tval))
+        {
+            this.isDirty[field] = true;
+            this.data[field] = tval;
+        }
+        return this;
+    }
+
+    has(field)
+    {
+        return is_obj(this.data) && has(this.data, field);
+    }
+
+    clear()
+    {
+        this.data = null;
+        this.isDirty = null;
+        return this.proxy;
+    }
+
+    beforeSave()
+    {
+    }
+
+    afterSave(result = 0)
+    {
+    }
+
+    __call(method, args, proxy)
+    {
+        let prefix = method.slice(0,3), field;
+        if ('get' === prefix)
+        {
+            field = DialectNoSql.snake_case(method.slice(3));
+            return args.length ? this.get(field, args[0]) : this.get(field);
+        }
+
+        else if ('set' === prefix)
+        {
+            field = DialectNoSql.snake_case(method.slice(3));
+            return this.set(field, !args.length ? null : args[0], 1<args.length ? args[1] : {});
+        }
+
+        else if ('has' === prefix)
+        {
+            field = DialectNoSql.snake_case(method.slice(3));
+            return this.has(field);
+        }
+
+        else
+        {
+            throw new ReferenceError('Undefined access "' + method + '" in ' + this.constructor.name);
+        }
+    }
+
+    _populate(data)
+    {
+        if (empty(data)) return this.proxy;
+
+        let klass = this.constructor, hydrateFromDB, i, n;
+        if (is_array(klass.pk))
+        {
+            hydrateFromDB = true
+            for (i = 0, n = klass.pk.length; i < n; i++)
+                hydrateFromDB = hydrateFromDB && has(data, klass.pk[i]) && !empty(data[klass.pk[i]]);
+        }
+        else
+        {
+            hydrateFromDB = has(data, klass.pk) && !empty(data[klass.pk]);
+        }
+        for (i in data)
+        {
+            if (has(data, i))
+                this.set(i, data[i]);
+        }
+        // populated from DB hydration, clear dirty flags
+        if (hydrateFromDB) this.isDirty = Object.create(null);
+        return this.proxy;
+    }
+
+    toObj(diff = false)
+    {
+        let a = {}, i, l, fields = Object.keys(this.data).sort();
+        for (i = 0, l = fields.length; i < l; i++)
+        {
+            if (diff && ! has(this.isDirty, fields[i])) continue;
+            a[fields[i]] = this.data[fields[i]];
+        }
+        return a;
+    }
+
+    async save(options = {})
+    {
+        options = merge({
+            'update' : false,
+        }, options);
+
+        let res = 0, pk, id, klass = this.constructor;
+
+        if (! empty(this.isDirty))
+        {
+            pk = klass.pk;
+            id = this.get(pk);
+            if (DialectNoSql.emptykey(id))
+            {
+                throw new DialectNoSql.Exception('Empty key in ' + klass.name + '.save()');
+            }
+
+            await this.beforeSave();
+
+            if (options['update'])
+            {
+                // update
+                res = await this.storage().update(klass.collection, is_array(pk) ? DialectNoSql.key(pk, id) : id, this.toObj(this.storage().supportsPartialUpdates()));
+            }
+            else
+            {
+                // insert
+                res = await this.storage().insert(klass.collection, is_array(pk) ? DialectNoSql.key(pk, id) : id, this.toObj(false));
+            }
+
+
+            this.isDirty = Object.create(null);
+
+            await this.afterSave(res);
+        }
+
+        return res;
+    }
+
+    async del(options = {})
+    {
+        options = merge({}, options);
+
+        let klass = this.constructor, res = 0, pk, id;
+
+        if (is_obj(this.data))
+        {
+            pk = klass.pk;
+            id = this.get(pk);
+            if (! DialectNoSql.emptykey(id))
+            {
+                // delete
+                res = await this.storage().del(klass.collection, is_array(pk) ? DialectNoSql.key(pk, id) : id);
+            }
+            this.clear();
+        }
+
+        return res;
+    }
+}
+
+DialectNoSql.VERSION = DialectORM.VERSION;
+DialectNoSql.Exception = DialectNoSqlException;
+DialectNoSql.INoSql = IDialectORMNoSql;
+
+DialectNoSql.NoSqlHandler = function(store = null) {
+    if (arguments.length)
+    {
+        if (! (store instanceof IDialectORMNoSql))
+            throw new DialectNoSql.Exception('DialectNoSql Store must implement DialectORM.NoSql.INoSql');
+        DialectNoSql.strh = store;
+    }
+    return DialectNoSql.strh;
+};
+
+DialectNoSql.snake_case = DialectORM.snake_case;
+
+DialectNoSql.camelCase = DialectORM.camelCase;
+
+DialectNoSql.key = DialectORM.key;
+
+DialectNoSql.emptykey = DialectORM.emptykey;
+
+DialectORM.NoSql = DialectNoSql;
 
 // export it
 return DialectORM;

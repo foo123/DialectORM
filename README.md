@@ -1,6 +1,6 @@
 # DialectORM
 
-Tiny, fast, super-simple but versatile **Object-Relational-Mapper (ORM)** **with Relationships** for **PHP**, **Python**, **JavaScript**
+Tiny, fast, super-simple but versatile **Object-Relational-Mapper (ORM)** **with Relationships** and **Object-NoSql-Mapper** for **PHP**, **Python**, **JavaScript**
 
 
 ![DialectORM](/dialectorm.jpg)
@@ -30,6 +30,12 @@ Tiny, fast, super-simple but versatile **Object-Relational-Mapper (ORM)** **with
 * **PHP: 5.3+**
 * **Python: 3+**
 * **JavaScript: ES7+**
+
+**Supports"**
+
+* **Relational Datastores**: MySql, MariaDB, Postgresql, Sql Server, Sqlite
+* **NoSql / Key-Value DataStores**: Redis, Mongodb (example in progress)
+* Easily extyended to other NoSql Stores, via providing adapter
 
 
 **example (see `/test` folder)**

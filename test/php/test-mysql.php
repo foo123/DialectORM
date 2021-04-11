@@ -2,7 +2,7 @@
 
 define('DIR', dirname(__FILE__));
 include(DIR.'/../../src/php/DialectORM.php');
-include(DIR.'/PDODb.php');
+include(DIR.'/sql/pdo-mysql.php');
 
 DialectORM::dependencies([
     'Dialect' => DIR.'/Dialect.php',

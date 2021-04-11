@@ -1,6 +1,6 @@
 let DialectORM = require('../../src/js/DialectORM.js');
 let Dialect = require('./Dialect.js');
-let MysqlDb = require('./MysqlDb.js')(DialectORM);
+let MysqlDb = require('./sql/mysql.js')(DialectORM);
 
 DialectORM.dependencies({
     'Dialect' : Dialect // provide actual class, i.e Dialect or path of module
