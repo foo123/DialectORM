@@ -149,6 +149,162 @@ def array(x):
 
 Dialect = None
 
+class DialectORMEntity:
+    @classmethod
+    def snake_case(klass, s, sep='_'):
+        s = re.sub('[A-Z]', lambda m: sep + m.group(0).lower(), lcfirst(s))
+        return s[1:] if sep == s[0]  else s
+
+    @classmethod
+    def camelCase(klass, s, PascalCase = False, sep = '_'):
+        s = re.sub(re.escape(sep)+'([a-z])', lambda m: m.group(1).upper(), s)
+        return ucfirst(s) if PascalCase else s
+
+    @classmethod
+    def key(klass, k, v, conditions = dict(), prefix = ''):
+        if isinstance(k, (list,tuple)):
+            v = array(v)
+            for i in range(len(k)):
+                conditions[prefix + k[i]] = v[i]
+        else:
+            conditions[prefix + k] = v
+        return conditions
+
+    @classmethod
+    def emptykey(klass, k):
+        if isinstance(k, (list, tuple)):
+            return empty(k) or (len(k) > len(list(filter(lambda ki: not empty(ki), k))))
+        else:
+            return empty(k)
+
+    @classmethod
+    def strkey(klass, k):
+        if isinstance(k, (list, tuple)):
+            return ':&:'.join(list(map(lambda ki: str(ki), k)))
+        else:
+            return str(k)
+
+    @classmethod
+    def pluck(klass, entities, field = ''):
+        if '' == field:
+            return list(map(lambda entity: entity.primaryKey(), entities))
+        else:
+            return list(map(lambda entity: entity.get(field), entities))
+
+    @classmethod
+    def sorter(klass, args = list()):
+        # Array multi - sorter utility
+        # returns a sorter that can (sub-)sort by multiple (nested) fields
+        # each ascending or descending independantly
+
+        # + before a (nested) field indicates ascending sorting (default),
+        # example "+a.b.c"
+        # - before a (nested) field indicates descending sorting,
+        # example "-b.c.d"
+        l = len(args)
+        if l:
+            step = 1
+            sorter = []
+            variables = []
+            sorter_args = []
+            filter_args = [];
+            for i in range(l-1, -1, -1):
+                field = args[i]
+                # if is array, it contains a filter function as well
+                filter_args.insert(0, 'f'+str(i))
+                if isinstance(field, (list,tuple)):
+                    sorter_args.insert(0, field[1])
+                    field = field[0]
+                else:
+                    sorter_args.insert(0, None)
+                field = str(field)
+                dir = field[0]
+                if '-' == dir:
+                    desc = True
+                    field = field[1:]
+                elif '+' == dir:
+                    desc = False
+                    field = field[1:]
+                else:
+                    # default ASC
+                    desc = False
+
+                field = ''.join(list(map(lambda f: '' if not len(f) else (('['+f+']') if re.search(r'^\d+$', f) else ('.get'+klass.camelCase(f, True)+'()')), field.split('.')))) if len(field) else ''
+                a = "a"+field
+                b = "b"+field
+                if sorter_args[0]:
+                    a = filter_args[0] + '(' + a + ')'
+                    b = filter_args[0] + '(' + b + ')'
+                avar = 'a_'+str(i)
+                bvar = 'b_'+str(i)
+                variables.insert(0, bvar+'='+b)
+                variables.insert(0, avar+'='+a)
+                lt = str(step) if desc else ('-'+str(step))
+                gt = ('-'+str(step)) if desc else str(step)
+                sorter.insert(0, "("+lt+" if "+avar+" < "+bvar+" else ("+gt+" if "+avar+" > "+bvar+" else 0))")
+                step <<= 1
+
+            # use optional custom filters as well
+            comparator = (createFunction(
+                    ','.join(filter_args),
+                    "\n".join([
+                    '    def sorter(a,b):',
+                    '        '+"\n        ".join(variables),
+                    '        return '+'+'.join(sorter),
+                    '    return sorter'
+                    ])
+                    ))(*sorter_args)
+            return functools.cmp_to_key(comparator)
+        else:
+            a = "a"
+            b = "b"
+            lt = '-1'
+            gt = '1'
+            sorter = lt+" if "+a+" < "+b+" else ("+gt+" if "+a+" > "+b+" else 0)"
+            comparator = createFunction('a,b', '    return '+sorter)
+            return functools.cmp_to_key(comparator)
+
+    @classmethod
+    def fetchByPk(klass, id, default = None):
+        return default
+
+    @classmethod
+    def fetchAll(klass, opts = dict(), default = list()):
+        return default
+
+    def primaryKey(self, default = 0):
+        klass = self.__class__
+        return self.get(klass.pk, default)
+
+    def get(self, field, default = None, opts = dict()):
+        return default
+
+    def set(self, field, val = None, opts = dict()):
+        return self
+
+    def has(self, field):
+        return False
+
+    def clear(self):
+        self.data = None
+        self.isDirty = None
+        return self
+
+    def toDict(self, diff = False):
+        return {}
+
+    def beforeSave(self):
+        pass
+
+    def afterSave(self, result = 0):
+        pass
+
+    def save(self, opts = dict()):
+        return 0
+
+    def delete(self, opts = dict()):
+        return 0
+
 # interface
 class IDialectORMDb(abc.ABC):
     @abc.abstractmethod
@@ -162,28 +318,7 @@ class IDialectORMDb(abc.ABC):
     @abc.abstractmethod
     def get(self, sql): raise NotImplementedError
 
-class IDialectORMNoSql(abc.ABC):
-    @abc.abstractmethod
-    def vendor(self): raise NotImplementedError
-    @abc.abstractmethod
-    def supportsPartialUpdates(self): raise NotImplementedError
-    @abc.abstractmethod
-    def supportsCollectionQueries(self): raise NotImplementedError
-    @abc.abstractmethod
-    def insert(self, collection, key, data): raise NotImplementedError
-    @abc.abstractmethod
-    def update(self, collection, key, data): raise NotImplementedError
-    @abc.abstractmethod
-    def delete(self, collection, key): raise NotImplementedError
-    @abc.abstractmethod
-    def find(self, collection, key): raise NotImplementedError
-    @abc.abstractmethod
-    def findAll(self, collection, data): raise NotImplementedError
-
 class DialectORMException(Exception):
-    pass
-
-class DialectNoSqlException(Exception):
     pass
 
 class DialectORMRelation:
@@ -197,7 +332,7 @@ class DialectORMRelation:
         self.field = None
         self.data = False
 
-class DialectORM:
+class DialectORM(DialectORMEntity):
     """
     DialectORM for Python,
     https://github.com/foo123/DialectORM
@@ -205,6 +340,7 @@ class DialectORM:
 
     VERSION = '2.0.0'
 
+    Entity = DialectORMEntity
     Exception = DialectORMException
     Relation = DialectORMRelation
     IDb = IDialectORMDb
@@ -263,121 +399,7 @@ class DialectORM:
     def tbl(table):
         return DialectORM.prefix() + str(table)
 
-    @staticmethod
-    def snake_case( s, sep='_' ):
-        s = re.sub('[A-Z]', lambda m: sep + m.group(0).lower(), lcfirst(s))
-        return s[1:] if sep == s[0]  else s
-
-    @staticmethod
-    def camelCase( s, PascalCase = False, sep = '_' ):
-        s = re.sub(re.escape(sep)+'([a-z])', lambda m: m.group(1).upper(), s)
-        return ucfirst(s) if PascalCase else s
-
-    @staticmethod
-    def key(k, v, conditions = dict(), prefix = ''):
-        if isinstance(k, (list,tuple)):
-            v = array(v)
-            for i in range(len(k)):
-                conditions[prefix + k[i]] = v[i]
-        else:
-            conditions[prefix + k] = v
-        return conditions
-
-    @staticmethod
-    def strkey(k):
-        if isinstance(k, (list, tuple)):
-            return ':&:'.join(list(map(lambda ki: str(ki), k)))
-        else:
-            return str(k)
-
-    @staticmethod
-    def emptykey(k):
-        if isinstance(k, (list, tuple)):
-            return empty(k) or (len(k) > len(list(filter(lambda ki: not empty(ki), k))))
-        else:
-            return empty(k)
-
     eq = eq
-
-    @staticmethod
-    def pluck(entities, field = ''):
-        if '' == field:
-            return list(map(lambda entity: entity.primaryKey(), entities))
-        else:
-            return list(map(lambda entity: entity.get(field), entities))
-
-    @classmethod
-    def sorter(klass, args = list()):
-        # Array multi - sorter utility
-        # returns a sorter that can (sub-)sort by multiple (nested) fields
-        # each ascending or descending independantly
-
-        # + before a (nested) field indicates ascending sorting (default),
-        # example "+a.b.c"
-        # - before a (nested) field indicates descending sorting,
-        # example "-b.c.d"
-        l = len(args)
-        if l:
-            step = 1
-            sorter = []
-            variables = []
-            sorter_args = []
-            filter_args = [];
-            for i in range(l-1, -1, -1):
-                field = args[i]
-                # if is array, it contains a filter function as well
-                filter_args.insert(0, 'f'+str(i))
-                if isinstance(field, (list,tuple)):
-                    sorter_args.insert(0, field[1])
-                    field = field[0]
-                else:
-                    sorter_args.insert(0, None)
-                field = str(field)
-                dir = field[0]
-                if '-' == dir:
-                    desc = True
-                    field = field[1:]
-                elif '+' == dir:
-                    desc = False
-                    field = field[1:]
-                else:
-                    # default ASC
-                    desc = False
-
-                field = ''.join(list(map(lambda f: '' if not len(f) else (('['+f+']') if re.search(r'^\d+$', f) else ('.get'+DialectORM.camelCase(f, True)+'()')), field.split('.')))) if len(field) else ''
-                a = "a"+field
-                b = "b"+field
-                if sorter_args[0]:
-                    a = filter_args[0] + '(' + a + ')'
-                    b = filter_args[0] + '(' + b + ')'
-                avar = 'a_'+str(i)
-                bvar = 'b_'+str(i)
-                variables.insert(0, bvar+'='+b)
-                variables.insert(0, avar+'='+a)
-                lt = str(step) if desc else ('-'+str(step))
-                gt = ('-'+str(step)) if desc else str(step)
-                sorter.insert(0, "("+lt+" if "+avar+" < "+bvar+" else ("+gt+" if "+avar+" > "+bvar+" else 0))")
-                step <<= 1
-
-            # use optional custom filters as well
-            comparator = (createFunction(
-                    ','.join(filter_args),
-                    "\n".join([
-                    '    def sorter(a,b):',
-                    '        '+"\n        ".join(variables),
-                    '        return '+'+'.join(sorter),
-                    '    return sorter'
-                    ])
-                    ))(*sorter_args)
-            return functools.cmp_to_key(comparator)
-        else:
-            a = "a"
-            b = "b"
-            lt = '-1'
-            gt = '1'
-            sorter = lt+" if "+a+" < "+b+" else ("+gt+" if "+a+" > "+b+" else 0)"
-            comparator = createFunction('a,b', '    return '+sorter)
-            return functools.cmp_to_key(comparator)
 
     @classmethod
     def fetchByPk(klass, id, default = None):
@@ -848,10 +870,6 @@ class DialectORM:
 
         return default
 
-    def primaryKey(self, default = 0):
-        klass = self.__class__
-        return self.get(klass.pk, default)
-
     def set(self, field, val = None, opts = dict()):
         if isinstance(field, (list,tuple)):
             for i, f in enumerate(field):
@@ -1094,12 +1112,6 @@ class DialectORM:
         for rel in self.relations: self.relations[rel].data = None
         return self
 
-    def beforeSave(self):
-        pass
-
-    def afterSave(self, result = 0):
-        pass
-
     # magic method calls simulated
     def __getattr__(self, method):
         prefix = method[0:3]
@@ -1336,7 +1348,29 @@ class DialectORM:
         return res
 
 
-class DialectNoSql:
+# interface
+class IDialectORMNoSql(abc.ABC):
+    @abc.abstractmethod
+    def vendor(self): raise NotImplementedError
+    @abc.abstractmethod
+    def supportsPartialUpdates(self): raise NotImplementedError
+    @abc.abstractmethod
+    def supportsConditionalQueries(self): raise NotImplementedError
+    @abc.abstractmethod
+    def insert(self, collection, key, data): raise NotImplementedError
+    @abc.abstractmethod
+    def update(self, collection, key, data): raise NotImplementedError
+    @abc.abstractmethod
+    def delete(self, collection, key): raise NotImplementedError
+    @abc.abstractmethod
+    def find(self, collection, key): raise NotImplementedError
+    @abc.abstractmethod
+    def findAll(self, collection, conditions): raise NotImplementedError
+
+class DialectNoSqlException(Exception):
+    pass
+
+class DialectNoSql(DialectORMEntity):
     """
     DialectORM for Python,
     https://github.com/foo123/DialectORM
@@ -1351,6 +1385,7 @@ class DialectNoSql:
 
     strh = None
 
+    @staticmethod
     def NoSqlHandler(store = None):
         if store is not None:
             if not isinstance(store, IDialectORMNoSql):
@@ -1358,100 +1393,15 @@ class DialectNoSql:
             DialectNoSql.strh = store
         return DialectNoSql.strh
 
-    snake_case = DialectORM.snake_case
-    camelCase = DialectORM.camelCase
-    key = DialectORM.key
-    emptykey = DialectORM.emptykey
-
-    @staticmethod
-    def pluck(entities, field = ''):
-        if '' == field:
-            return list(map(lambda entity: entity.primaryKey(), entities))
-        else:
-            return list(map(lambda entity: entity.get(field), entities))
-
-    @classmethod
-    def sorter(klass, args = list()):
-        # Array multi - sorter utility
-        # returns a sorter that can (sub-)sort by multiple (nested) fields
-        # each ascending or descending independantly
-
-        # + before a (nested) field indicates ascending sorting (default),
-        # example "+a.b.c"
-        # - before a (nested) field indicates descending sorting,
-        # example "-b.c.d"
-        l = len(args)
-        if l:
-            step = 1
-            sorter = []
-            variables = []
-            sorter_args = []
-            filter_args = [];
-            for i in range(l-1, -1, -1):
-                field = args[i]
-                # if is array, it contains a filter function as well
-                filter_args.insert(0, 'f'+str(i))
-                if isinstance(field, (list,tuple)):
-                    sorter_args.insert(0, field[1])
-                    field = field[0]
-                else:
-                    sorter_args.insert(0, None)
-                field = str(field)
-                dir = field[0]
-                if '-' == dir:
-                    desc = True
-                    field = field[1:]
-                elif '+' == dir:
-                    desc = False
-                    field = field[1:]
-                else:
-                    # default ASC
-                    desc = False
-
-                field = ''.join(list(map(lambda f: '' if not len(f) else (('['+f+']') if re.search(r'^\d+$', f) else ('.get'+DialectNoSql.camelCase(f, True)+'()')), field.split('.')))) if len(field) else ''
-                a = "a"+field
-                b = "b"+field
-                if sorter_args[0]:
-                    a = filter_args[0] + '(' + a + ')'
-                    b = filter_args[0] + '(' + b + ')'
-                avar = 'a_'+str(i)
-                bvar = 'b_'+str(i)
-                variables.insert(0, bvar+'='+b)
-                variables.insert(0, avar+'='+a)
-                lt = str(step) if desc else ('-'+str(step))
-                gt = ('-'+str(step)) if desc else str(step)
-                sorter.insert(0, "("+lt+" if "+avar+" < "+bvar+" else ("+gt+" if "+avar+" > "+bvar+" else 0))")
-                step <<= 1
-
-            # use optional custom filters as well
-            comparator = (createFunction(
-                    ','.join(filter_args),
-                    "\n".join([
-                    '    def sorter(a,b):',
-                    '        '+"\n        ".join(variables),
-                    '        return '+'+'.join(sorter),
-                    '    return sorter'
-                    ])
-                    ))(*sorter_args)
-            return functools.cmp_to_key(comparator)
-        else:
-            a = "a"
-            b = "b"
-            lt = '-1'
-            gt = '1'
-            sorter = lt+" if "+a+" < "+b+" else ("+gt+" if "+a+" > "+b+" else 0)"
-            comparator = createFunction('a,b', '    return '+sorter)
-            return functools.cmp_to_key(comparator)
-
     @classmethod
     def fetchByPk(klass, id, default = None):
         entity = DialectNoSql.NoSqlHandler().find(klass.collection, DialectNoSql.key(klass.pk, id) if isinstance(klass.pk, (list,tuple)) else id)
         return klass(entity[0] if isinstance(entity, list) else entity) if not empty(entity) else default
 
     @classmethod
-    def fetchAll(klass, data = dict(), default = list()):
-        if DialectNoSql.NoSqlHandler().supportsCollectionQueries():
-            entities = DialectNoSql.NoSqlHandler().findAll(klass.collection, data)
+    def fetchAll(klass, conditions = dict(), default = list()):
+        if DialectNoSql.NoSqlHandler().supportsConditionalQueries():
+            entities = DialectNoSql.NoSqlHandler().findAll(klass.collection, conditions)
             if empty(entities): return default
             for i in range(len(entities)):
                 entities[i] = klass(entities[i])
@@ -1479,10 +1429,6 @@ class DialectNoSql:
             raise DialectNoSql.Exception('Undefined Field: "' + field + '" in ' + klass.__name__ + ' via get()')
 
         return self.data[field]
-
-    def primaryKey(self, default = 0):
-        klass = self.__class__
-        return self.get(klass.pk, default)
 
     def set(self, field, val = None, opts = dict()):
         if isinstance(field, (list,tuple)):
@@ -1535,12 +1481,6 @@ class DialectNoSql:
         self.data = None
         self.isDirty = None
         return self
-
-    def beforeSave(self):
-        pass
-
-    def afterSave(self, result = 0):
-        pass
 
     # magic method calls simulated
     def __getattr__(self, method):

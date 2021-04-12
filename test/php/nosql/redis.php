@@ -4,8 +4,8 @@ require_once(dirname(__FILE__) . '/redis_cli.php');
 
 class RedisStorage implements IDialectORMNoSql
 {
-    protected $client;
-    protected $keyPrefix = '';
+    private $client;
+    private $keyPrefix = '';
 
     public function __construct($options = array())
     {
@@ -29,7 +29,7 @@ class RedisStorage implements IDialectORMNoSql
         return false;
     }
 
-    public function supportsCollectionQueries()
+    public function supportsConditionalQueries()
     {
         return false;
     }
@@ -57,7 +57,7 @@ class RedisStorage implements IDialectORMNoSql
         return ! $data ? null : json_decode($data, true);
     }
 
-    public function findAll($collection, $data)
+    public function findAll($collection, $conditions)
     {
         return null;
     }

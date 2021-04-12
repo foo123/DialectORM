@@ -31,11 +31,10 @@ Tiny, fast, super-simple but versatile **Object-Relational-Mapper (ORM)** **with
 * **Python: 3+**
 * **JavaScript: ES7+**
 
-**Supports"**
+**Supports:**
 
-* **Relational Datastores**: MySql, MariaDB, Postgresql, Sql Server, Sqlite
-* **NoSql / Key-Value DataStores**: Redis, Mongodb (example in progress)
-* Easily extyended to other NoSql Stores, via providing adapter
+* **Relational Datastores**: MySql, MariaDB, Postgresql, Sql Server, Sqlite, easily extended to other Relational Stores via adding Dialect configuration
+* **NoSql / Key-Value DataStores**: Redis, Mongodb (example in progress), easily extended to other NoSql Stores via providing adapter
 
 
 **example (see `/test` folder)**

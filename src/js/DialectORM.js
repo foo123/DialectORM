@@ -134,76 +134,50 @@ var magicMethodsProxy = {
 
 var Dialect = null
 
-// interface
-class IDialectORMDb
+class DialectORMEntity
 {
-    vendor() { throw NotImplemented(); }
-    escape(str) { throw NotImplemented(); }
-    escapeWillQuote() { throw NotImplemented(); }
-    query(sql) { throw NotImplemented(); }
-    get(sql) { throw NotImplemented(); }
-}
-
-class IDialectORMNoSql
-{
-    vendor() { throw NotImplemented(); }
-    supportsPartialUpdates() { throw NotImplemented(); }
-    supportsCollectionQueries() { throw NotImplemented(); }
-    insert(collection, key, data) { throw NotImplemented(); }
-    update(collection, key, data) { throw NotImplemented(); }
-    del(collection, key) { throw NotImplemented(); }
-    find(collection, key) { throw NotImplemented(); }
-    findAll(collection, data) { throw NotImplemented(); }
-}
-
-class DialectORMException extends Error
-{
-    constructor(message)
+    static snake_case(s, sep = '_')
     {
-        super(message);
-        this.name = "DialectORMException";
+        s = lcfirst(s).replace(/[A-Z]/g, (m0) => sep + m0.toLowerCase());
+        return sep === s.charAt(0) ? s.slice(1) : s;
     }
-}
 
-class DialectNoSqlException extends Error
-{
-    constructor(message)
+    static camelCase(s, PascalCase = false, sep = '_')
     {
-        super(message);
-        this.name = "DialectNoSqlException";
+        s = s.replace(new RegExp(esc_re(sep)+'([a-z])', 'g'), (m0, m1) => m1.toUpperCase());
+        return PascalCase ? ucfirst(s) : s;
     }
-}
 
-class DialectORMRelation
-{
-    type = '';
-    a = null;
-    b = null;
-    keya = null;
-    keyb = null;
-    ab = null;
-    field = null;
-    data = false;
-
-    constructor(type, a, b, kb, ka = null, ab = null)
+    static key(k, v, conditions = {}, prefix = '')
     {
-        this.type = String(type).toLowerCase();
-        this.a = a;
-        this.b = b;
-        this.keya = ka || null;
-        this.keyb = kb;
-        this.ab = ab || null;
-        this.field = null;
-        this.data = false;
+        if (is_array(k))
+        {
+            v = array(v);
+            for (let i = 0, n = k.length; i < n; i++)
+                conditions[prefix + k[i]] = v[i];
+        }
+        else
+        {
+            conditions[prefix + k] = v;
+        }
+        return conditions;
     }
-}
 
-class DialectORM
-{
-    static table = null;
-    static pk = null;
-    static fields = [];
-    static relationships = {};
+    static emptykey(k)
+    {
+        if (is_array(k))
+            return empty(k) || (k.length > k.filter(ki => ! empty(ki)).length);
+        else
+            return empty(k);
+    }
+
+    static strkey(k)
+    {
+        if (is_array(k))
+            return k.map(ki => String(ki)).join(':&:');
+        else
+            return String(k);
+    }
 
     static pluck(entities, field = '')
     {
@@ -262,7 +236,7 @@ class DialectORM
                     // default ASC
                     desc = false;
                 }
-                field = field.length ? field.split('.').map(f => !f.length ? '' : (/^\d+$/.test(f) ? ('['+f+']') : ('.get'+DialectORM.camelCase(f, true)+'()'))).join('')/*'["' + field.split('.').join('"]["') + '"]'*/ : '';
+                field = field.length ? field.split('.').map(f => !f.length ? '' : (/^\d+$/.test(f) ? ('['+f+']') : ('.get'+klass.camelCase(f, true)+'()'))).join('')/*'["' + field.split('.').join('"]["') + '"]'*/ : '';
                 a = "a"+field; b = "b"+field;
                 if (sorter_args[0])
                 {
@@ -292,6 +266,121 @@ class DialectORM
             return new Function("a,b", 'return '+sorter+';');
         }
     }
+
+    static pk = null;
+
+    static async fetchByPk(id, default_ = null)
+    {
+        return default_;
+    }
+
+    static async fetchAll(options = {}, default_ = [])
+    {
+        return default_;
+    }
+
+    primaryKey(default_ = 0)
+    {
+        let klass = this.constructor;
+        return this.get(klass.pk, default_);
+    }
+
+    get(field, default_ = null, options = {})
+    {
+        return default_;
+    }
+
+    set(field, val = null, options = {})
+    {
+        return this;
+    }
+
+    has(field)
+    {
+        return false;
+    }
+
+    clear()
+    {
+        this.data = null;
+        this.isDirty = null;
+        return this;
+    }
+
+    toObj(diff = false)
+    {
+        return {};
+    }
+
+    beforeSave()
+    {
+        //pass
+    }
+
+    afterSave(result=0)
+    {
+        //pass
+    }
+
+    async save(options = {})
+    {
+        return 0;
+    }
+
+    async del(options = {})
+    {
+        return 0;
+    }
+}
+
+// interface
+class IDialectORMDb
+{
+    vendor() { throw NotImplemented(); }
+    escape(str) { throw NotImplemented(); }
+    escapeWillQuote() { throw NotImplemented(); }
+    query(sql) { throw NotImplemented(); }
+    get(sql) { throw NotImplemented(); }
+}
+
+class DialectORMException extends Error
+{
+    constructor(message)
+    {
+        super(message);
+        this.name = "DialectORMException";
+    }
+}
+
+class DialectORMRelation
+{
+    type = '';
+    a = null;
+    b = null;
+    keya = null;
+    keyb = null;
+    ab = null;
+    field = null;
+    data = false;
+
+    constructor(type, a, b, kb, ka = null, ab = null)
+    {
+        this.type = String(type).toLowerCase();
+        this.a = a;
+        this.b = b;
+        this.keya = ka || null;
+        this.keyb = kb;
+        this.ab = ab || null;
+        this.field = null;
+        this.data = false;
+    }
+}
+
+class DialectORM extends DialectORMEntity
+{
+    static table = null;
+    static fields = [];
+    static relationships = {};
 
     static async fetchByPk(id, default_ = null)
     {
@@ -739,6 +828,7 @@ class DialectORM
 
     constructor(data = {})
     {
+        super();
         this._db = null;
         this._sql = null;
         this.relations = {};
@@ -949,12 +1039,6 @@ class DialectORM
         }
 
         return default_;
-    }
-
-    primaryKey(default_ = 0)
-    {
-        let klass = this.constructor;
-        return this.get(klass.pk, default_);
     }
 
     set(field, val = null, options = {})
@@ -1303,17 +1387,7 @@ class DialectORM
         for (rel in this.relations)
             if (has(this.relations, rel))
                 this.relations[rel].data = null;
-        return this.proxy;
-    }
-
-    beforeSave()
-    {
-        //pass
-    }
-
-    afterSave(result=0)
-    {
-        //pass
+        return this;
     }
 
     // magic method calls simulated
@@ -1387,7 +1461,7 @@ class DialectORM
         }
         // populated from DB hydration, clear dirty flags
         if (hydrateFromDB) this.isDirty = Object.create(null);
-        return this.proxy;
+        return this;
     }
 
     toObj(deep = false, diff = false, stack = [])
@@ -1633,6 +1707,7 @@ class DialectORM
 
 DialectORM.VERSION = '2.0.0';
 
+DialectORM.Entity = DialectORMEntity;
 DialectORM.Exception = DialectORMException;
 DialectORM.Relation = DialectORMRelation;
 DialectORM.IDb = IDialectORMDb;
@@ -1694,143 +1769,37 @@ DialectORM.tbl = function(table) {
     return DialectORM.prefix() + String(table);
 };
 
-DialectORM.snake_case = function(s, sep = '_') {
-    s = lcfirst(s).replace(/[A-Z]/g, (m0) => sep + m0.toLowerCase());
-    return sep === s.charAt(0) ? s.slice(1) : s;
-};
-
-DialectORM.camelCase = function(s, PascalCase = false, sep = '_') {
-    s = s.replace(new RegExp(esc_re(sep)+'([a-z])', 'g'), (m0, m1) => m1.toUpperCase());
-    return PascalCase ? ucfirst(s) : s;
-};
-
-DialectORM.key = function(k, v, conditions = {}, prefix = '') {
-    if (is_array(k))
-    {
-        v = array(v);
-        for (let i = 0, n = k.length; i < n; i++)
-            conditions[prefix + k[i]] = v[i];
-    }
-    else
-    {
-        conditions[prefix + k] = v;
-    }
-    return conditions;
-};
-
-DialectORM.strkey = function(k) {
-    if (is_array(k))
-        return k.map(ki => String(ki)).join(':&:');
-    else
-        return String(k);
-};
-
-DialectORM.emptykey = function(k) {
-    if (is_array(k))
-        return empty(k) || (k.length > k.filter(ki => ! empty(ki)).length);
-    else
-        return empty(k);
-};
-
 DialectORM.eq = eq;
 
-class DialectNoSql
+class IDialectORMNoSql
+{
+    vendor() { throw NotImplemented(); }
+    supportsPartialUpdates() { throw NotImplemented(); }
+    supportsConditionalQueries() { throw NotImplemented(); }
+    insert(collection, key, data) { throw NotImplemented(); }
+    update(collection, key, data) { throw NotImplemented(); }
+    del(collection, key) { throw NotImplemented(); }
+    find(collection, key) { throw NotImplemented(); }
+    findAll(collection, conditions) { throw NotImplemented(); }
+}
+
+class DialectNoSqlException extends Error
+{
+    constructor(message)
+    {
+        super(message);
+        this.name = "DialectNoSqlException";
+    }
+}
+
+class DialectNoSql extends DialectORMEntity
 {
     static collection = null;
-    static pk = null;
 
     _str = null;
     data = null;
     isDirty = null;
     proxy = null;
-
-    static pluck(entities, field = '')
-    {
-        if ('' === field)
-            return entities.map(entity => entity.primaryKey());
-        else
-            return entities.map(entity => entity.get(field));
-    }
-
-    static sorter(args = [])
-    {
-        // Array multi - sorter utility
-        // returns a sorter that can (sub-)sort by multiple (nested) fields
-        // each ascending or descending independantly
-        var klass = this, i, /*args = arguments,*/ l = args.length,
-            a, b, avar, bvar, variables, step, lt, gt,
-            field, filter_args, sorter_args, desc, dir, sorter;
-        // + before a (nested) field indicates ascending sorting (default),
-        // example "+a.b.c"
-        // - before a (nested) field indicates descending sorting,
-        // example "-b.c.d"
-        if (l)
-        {
-            step = 1;
-            sorter = [];
-            variables = [];
-            sorter_args = [];
-            filter_args = [];
-            for (i = l-1; i >= 0; i--)
-            {
-                field = args[i];
-                // if is array, it contains a filter function as well
-                filter_args.unshift('f' + String(i));
-                if (is_array(field))
-                {
-                    sorter_args.unshift(field[1]);
-                    field = field[0];
-                }
-                else
-                {
-                    sorter_args.unshift(null);
-                }
-                dir = field.charAt(0);
-                if ('-' === dir)
-                {
-                    desc = true;
-                    field = field.slice(1);
-                }
-                else if ('+' === dir)
-                {
-                    desc = false;
-                    field = field.slice(1);
-                }
-                else
-                {
-                    // default ASC
-                    desc = false;
-                }
-                field = field.length ? field.split('.').map(f => !f.length ? '' : (/^\d+$/.test(f) ? ('['+f+']') : ('.get'+DialectNoSql.camelCase(f, true)+'()'))).join('')/*'["' + field.split('.').join('"]["') + '"]'*/ : '';
-                a = "a"+field; b = "b"+field;
-                if (sorter_args[0])
-                {
-                    a = filter_args[0] + '(' + a + ')';
-                    b = filter_args[0] + '(' + b + ')';
-                }
-                avar = 'a_'+String(i); bvar = 'b_'+String(i);
-                variables.unshift(''+avar+'='+a+','+bvar+'='+b+'');
-                lt = desc ?(''+step):('-'+step); gt = desc ?('-'+step):(''+step);
-                sorter.unshift("("+avar+" < "+bvar+" ? "+lt+" : ("+avar+" > "+bvar+" ? "+gt+" : 0))");
-                step <<= 1;
-            }
-            // use optional custom filters as well
-            return (new Function(
-                    filter_args.join(','),
-                    ['return function(a,b) {',
-                     '  var '+variables.join(',')+';',
-                     '  return '+sorter.join('+')+';',
-                     '};'].join("\n")
-                    ))
-                    .apply(null, sorter_args);
-        }
-        else
-        {
-            a = "a"; b = "b"; lt = '-1'; gt = '1';
-            sorter = ""+a+" < "+b+" ? "+lt+" : ("+a+" > "+b+" ? "+gt+" : 0)";
-            return new Function("a,b", 'return '+sorter+';');
-        }
-    }
 
     static async fetchByPk(id, default_ = null)
     {
@@ -1839,12 +1808,12 @@ class DialectNoSql
         return !empty(entity) ? new klass(is_array(entity) ? entity[0] : entity) : default_;
     }
 
-    static async fetchAll(data = {}, default_ = [])
+    static async fetchAll(conditions = {}, default_ = [])
     {
         let klass = this, entities, i, l;
-        if (DialectNoSql.NoSqlHandler().supportsCollectionQueries())
+        if (DialectNoSql.NoSqlHandler().supportsConditionalQueries())
         {
-            entities = await DialectNoSql.NoSqlHandler().findAll(klass.collection, data);
+            entities = await DialectNoSql.NoSqlHandler().findAll(klass.collection, conditions);
             if (empty(entities)) return default_;
             for (i = 0, l = entities.length; i < l; i++)
             {
@@ -1857,6 +1826,7 @@ class DialectNoSql
 
     constructor(data = {})
     {
+        super();
         this._str = null;
         this.data = null;
         this.isDirty = null;
@@ -1891,11 +1861,6 @@ class DialectNoSql
         }
 
         return this.data[field];
-    }
-
-    primaryKey(default_ = 0)
-    {
-        return this.get(this.constructor.pk, default_);
     }
 
     set(field, val = null, options = {})
@@ -1958,14 +1923,6 @@ class DialectNoSql
         return this.proxy;
     }
 
-    beforeSave()
-    {
-    }
-
-    afterSave(result = 0)
-    {
-    }
-
     __call(method, args, proxy)
     {
         let prefix = method.slice(0,3), field;
@@ -2015,7 +1972,7 @@ class DialectNoSql
         }
         // populated from DB hydration, clear dirty flags
         if (hydrateFromDB) this.isDirty = Object.create(null);
-        return this.proxy;
+        return this;
     }
 
     toObj(diff = false)
@@ -2103,14 +2060,6 @@ DialectNoSql.NoSqlHandler = function(store = null) {
     }
     return DialectNoSql.strh;
 };
-
-DialectNoSql.snake_case = DialectORM.snake_case;
-
-DialectNoSql.camelCase = DialectORM.camelCase;
-
-DialectNoSql.key = DialectORM.key;
-
-DialectNoSql.emptykey = DialectORM.emptykey;
 
 DialectORM.NoSql = DialectNoSql;
 

@@ -20,7 +20,7 @@ def getStorage(DialectNoSql):
         def supportsPartialUpdates(self):
             return False
 
-        def supportsCollectionQueries(self):
+        def supportsConditionalQueries(self):
             return False
 
         def insert(self, collection, key, data):
@@ -38,7 +38,7 @@ def getStorage(DialectNoSql):
             data = self.client.get(self.getKeyName(collection, key))
             return None if not data else json.loads(data.decode('utf-8'))
 
-        def findAll(self, collection, data):
+        def findAll(self, collection, conditions):
             return None
 
         def getKeyName(self, collection, key = None):

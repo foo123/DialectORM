@@ -40,7 +40,7 @@ class RedisStorage extends DialectNoSql.INoSql
         return false;
     }
 
-    supportsCollectionQueries()
+    supportsConditionalQueries()
     {
         return false;
     }
@@ -80,7 +80,7 @@ class RedisStorage extends DialectNoSql.INoSql
         });
     }
 
-    findAll(collection, data)
+    findAll(collection, conditions)
     {
         return null;
     }

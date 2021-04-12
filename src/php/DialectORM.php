@@ -9,134 +9,9 @@
 
 if (! class_exists('DialectORM', false))
 {
-interface IDialectORMDb
+
+abstract class DialectORMEntity
 {
-    public function vendor();
-    public function escape($str);
-    public function escapeWillQuote();
-    public function query($sql);
-    public function get($sql);
-}
-
-interface IDialectORMNoSql
-{
-    public function vendor();
-    public function supportsPartialUpdates();
-    public function supportsCollectionQueries();
-    public function insert($collection, $key, $data);
-    public function update($collection, $key, $data);
-    public function delete($collection, $key);
-    public function find($collection, $key);
-    public function findAll($collection, $data);
-}
-
-class DialectORMException extends Exception
-{
-}
-
-class DialectNoSqlException extends Exception
-{
-}
-
-class DialectORMRelation
-{
-    public $type = '';
-    public $a = null;
-    public $b = null;
-    public $ab = null;
-    public $keya = null;
-    public $keyb = null;
-    public $field = null;
-    public $data = false;
-
-    public function __construct($type, $a, $b, $kb, $ka = null, $ab = null)
-    {
-        $this->type = strtolower((string)$type);
-        $this->a = $a;
-        $this->b = $b;
-        $this->keya = $ka;
-        $this->keyb = $kb;
-        $this->ab = $ab;
-        $this->data = false;
-    }
-}
-
-class DialectORM
-{
-    const VERSION = '2.0.0';
-
-    public static $table = null;
-    public static $pk = null;
-    public static $fields = array();
-    public static $relationships = array();
-
-    protected static $deps = array();
-    protected static $dbh = null;
-    protected static $tblprefix = '';
-
-    private $_db = null;
-    private $_sql = null;
-
-    private $relations = array();
-    private $data = null;
-    private $isDirty = null;
-
-    public static function dependencies($deps)
-    {
-        DialectORM::$deps = array_merge(DialectORM::$deps, (array)$deps);
-    }
-
-    public static function dependency($dep, $default = null)
-    {
-        return isset(DialectORM::$deps[$dep]) ? DialectORM::$deps[$dep] : $default;
-    }
-
-    public static function DBHandler($db = null)
-    {
-        if (func_num_args())
-        {
-            if (! ($db instanceof IDialectORMDb))
-                throw new DialectORMException('DialectORM DB must implement IDialectORMDb', 1);
-            DialectORM::$dbh = $db;
-        }
-        return DialectORM::$dbh;
-    }
-
-    public static function SQLBuilder()
-    {
-        $sqlBuilder = 'Dialect';
-        $entry = DialectORM::dependency('Dialect');
-        if (! empty($entry) && is_array($entry))
-        {
-            // Dialect may be overriden, eg a subclass of Dialect
-            if (! empty($entry[1])) $sqlBuilder = $entry[1];
-            $entry = $entry[0];
-        }
-        if (! class_exists($sqlBuilder, false))
-        {
-            if (! empty($entry)) include($entry);
-        }
-        $db = DialectORM::DBHandler();
-        $sql = new $sqlBuilder($db->vendor());
-        $sql->escape(array($db, 'escape'), $db->escapeWillQuote());
-        if (method_exists($db, 'escapeId'))
-        {
-            $sql->escapeId(array($db, 'escapeId'), method_exists($db, 'escapeIdWillQuote') ? $db->escapeIdWillQuote() : false);
-        }
-        return $sql;
-    }
-
-    public static function prefix($prefix = null)
-    {
-        if (func_num_args()) DialectORM::$tblprefix = (string)$prefix;
-        return DialectORM::$tblprefix;
-    }
-
-    public static function tbl($table)
-    {
-        return DialectORM::prefix() . $table;
-    }
-
     public static function snake_case($s, $sep = '_')
     {
         $s = preg_replace_callback('#[A-Z]#', function($m) use ($sep) {return $sep . strtolower($m[0]);}, lcfirst($s));
@@ -164,14 +39,6 @@ class DialectORM
         return $conditions;
     }
 
-    public static function strkey($k)
-    {
-        if (is_array($k))
-            return implode(':&:', array_map(function($ki) {return (string)$ki;}, $k));
-        else
-            return (string)$k;
-    }
-
     public static function emptykey($k)
     {
         if (is_array($k))
@@ -180,10 +47,12 @@ class DialectORM
             return empty($k);
     }
 
-    public static function eq($a, $b)
+    public static function strkey($k)
     {
-        // handles array equivalence as well
-        return $a === $b;
+        if (is_array($k))
+            return implode(':&:', array_map(function($ki) {return (string)$ki;}, $k));
+        else
+            return (string)$k;
     }
 
     public static function pluck($entities, $field = '')
@@ -252,7 +121,7 @@ class DialectORM
                     // default ASC
                     $desc = false;
                 }
-                $field = strlen($field) ? implode('', array_map(function($f) {return !strlen($f) ? '' : (preg_match('#^\\d+$#', $f) ? ('['.$f.']') : ('->get'.DialectORM::camelCase($f, true).'()'));}, explode('.', $field)))/*'["' . implode('"]["', explode('.', $field)) . '"]'*/ : '';
+                $field = strlen($field) ? implode('', array_map(function($f) {return !strlen($f) ? '' : (preg_match('#^\\d+$#', $f) ? ('['.$f.']') : ('->get'.static::camelCase($f, true).'()'));}, explode('.', $field)))/*'["' . implode('"]["', explode('.', $field)) . '"]'*/ : '';
                 $a = '$a'.$field; $b = '$b'.$field;
                 if ($sorter_args[0])
                 {
@@ -281,6 +150,186 @@ class DialectORM
             $sorter = "".$a." < ".$b." ? ".$lt." : (".$a." > ".$b." ? ".$gt." : 0)";
             return eval('return function($a,$b){return '.$sorter.';};');
         }
+    }
+
+    public static $pk = null;
+
+    public static function fetchByPk($id, $default = null)
+    {
+        return $default;
+    }
+
+    public static function fetchAll($options = array(), $default = array())
+    {
+        return $default;
+    }
+
+    public function primaryKey($default = 0)
+    {
+        return $this->get(static::$pk, $default);
+    }
+
+    public function get($field, $default = null, $options = array())
+    {
+        return $default;
+    }
+
+    public function set($field, $val = null, $options = array())
+    {
+        return $this;
+    }
+
+    public function has($field)
+    {
+        return false;
+    }
+
+    public function clear()
+    {
+        $this->data = null;
+        $this->isDirty = null;
+        return $this;
+    }
+
+    public function toArray($diff = false)
+    {
+        return array();
+    }
+
+    public function beforeSave()
+    {
+    }
+
+    public function afterSave($result = 0)
+    {
+    }
+
+    public function save($options = array())
+    {
+        return 0;
+    }
+
+    public function delete($options = array())
+    {
+        return 0;
+    }
+}
+
+interface IDialectORMDb
+{
+    public function vendor();
+    public function escape($str);
+    public function escapeWillQuote();
+    public function query($sql);
+    public function get($sql);
+}
+
+class DialectORMException extends Exception
+{
+}
+
+class DialectORMRelation
+{
+    public $type = '';
+    public $a = null;
+    public $b = null;
+    public $ab = null;
+    public $keya = null;
+    public $keyb = null;
+    public $field = null;
+    public $data = false;
+
+    public function __construct($type, $a, $b, $kb, $ka = null, $ab = null)
+    {
+        $this->type = strtolower((string)$type);
+        $this->a = $a;
+        $this->b = $b;
+        $this->keya = $ka;
+        $this->keyb = $kb;
+        $this->ab = $ab;
+        $this->data = false;
+    }
+}
+
+class DialectORM extends DialectORMEntity
+{
+    const VERSION = '2.0.0';
+
+    protected static $deps = array();
+    protected static $dbh = null;
+    protected static $tblprefix = '';
+
+    public static $table = null;
+    public static $fields = array();
+    public static $relationships = array();
+
+    private $_db = null;
+    private $_sql = null;
+
+    private $data = null;
+    private $isDirty = null;
+    private $relations = array();
+
+    public static function dependencies($deps)
+    {
+        DialectORM::$deps = array_merge(DialectORM::$deps, (array)$deps);
+    }
+
+    public static function dependency($dep, $default = null)
+    {
+        return isset(DialectORM::$deps[$dep]) ? DialectORM::$deps[$dep] : $default;
+    }
+
+    public static function DBHandler($db = null)
+    {
+        if (func_num_args())
+        {
+            if (! ($db instanceof IDialectORMDb))
+                throw new DialectORMException('DialectORM DB must implement IDialectORMDb', 1);
+            DialectORM::$dbh = $db;
+        }
+        return DialectORM::$dbh;
+    }
+
+    public static function SQLBuilder()
+    {
+        $sqlBuilder = 'Dialect';
+        $entry = DialectORM::dependency('Dialect');
+        if (! empty($entry) && is_array($entry))
+        {
+            // Dialect may be overriden, eg a subclass of Dialect
+            if (! empty($entry[1])) $sqlBuilder = $entry[1];
+            $entry = $entry[0];
+        }
+        if (! class_exists($sqlBuilder, false))
+        {
+            if (! empty($entry)) include($entry);
+        }
+        $db = DialectORM::DBHandler();
+        $sql = new $sqlBuilder($db->vendor());
+        $sql->escape(array($db, 'escape'), $db->escapeWillQuote());
+        if (method_exists($db, 'escapeId'))
+        {
+            $sql->escapeId(array($db, 'escapeId'), method_exists($db, 'escapeIdWillQuote') ? $db->escapeIdWillQuote() : false);
+        }
+        return $sql;
+    }
+
+    public static function prefix($prefix = null)
+    {
+        if (func_num_args()) DialectORM::$tblprefix = (string)$prefix;
+        return DialectORM::$tblprefix;
+    }
+
+    public static function tbl($table)
+    {
+        return DialectORM::prefix() . $table;
+    }
+
+    public static function eq($a, $b)
+    {
+        // handles array equivalence as well
+        return $a === $b;
     }
 
     public static function fetchByPk($id, $default = null)
@@ -858,11 +907,6 @@ class DialectORM
         return $default;
     }
 
-    public function primaryKey($default = 0)
-    {
-        return $this->get(static::$pk, $default);
-    }
-
     public function set($field, $val = null, $options = array())
     {
         if (is_array($field))
@@ -1183,14 +1227,6 @@ class DialectORM
         return $this;
     }
 
-    public function beforeSave()
-    {
-    }
-
-    public function afterSave($result = 0)
-    {
-    }
-
     public function __call($method, $args = array())
     {
         $prefix = substr($method, 0, 3);
@@ -1479,16 +1515,32 @@ class DialectORM
     }
 }
 
-class DialectNoSql
+interface IDialectORMNoSql
+{
+    public function vendor();
+    public function supportsPartialUpdates();
+    public function supportsConditionalQueries();
+    public function insert($collection, $key, $data);
+    public function update($collection, $key, $data);
+    public function delete($collection, $key);
+    public function find($collection, $key);
+    public function findAll($collection, $conditions);
+}
+
+class DialectNoSqlException extends Exception
+{
+}
+
+class DialectNoSql extends DialectORMEntity
 {
     const VERSION = '2.0.0';
 
-    public static $collection = null;
-    public static $pk = null;
-
     protected static $strh = null;
 
+    public static $collection = null;
+
     private $_str = null;
+
     private $data = null;
     private $isDirty = null;
 
@@ -1503,149 +1555,17 @@ class DialectNoSql
         return DialectNoSql::$strh;
     }
 
-    public static function snake_case($s, $sep = '_')
-    {
-        $s = preg_replace_callback('#[A-Z]#', function($m) use ($sep) {return $sep . strtolower($m[0]);}, lcfirst($s));
-        return $sep === substr($s, 0, 1) ? substr($s, 1) : $s;
-    }
-
-    public static function camelCase($s, $PascalCase = false, $sep = '_')
-    {
-        $s = preg_replace_callback('#'.preg_quote($sep, '#').'([a-z])#', function($m) {return strtoupper($m[1]);}, $s);
-        return $PascalCase ? ucfirst($s) : $s;
-    }
-
-    public static function key($k, $v, $conditions = array(), $prefix = '')
-    {
-        if (is_array($k))
-        {
-            $v = (array)$v;
-            for ($i = 0, $n = count($k); $i < $n; $i++)
-                $conditions[$prefix . $k[$i]] = $v[$i];
-        }
-        else
-        {
-            $conditions[$prefix . $k] = $v;
-        }
-        return $conditions;
-    }
-
-    public static function emptykey($k)
-    {
-        if (is_array($k))
-            return empty($k) || (count($k) > count(array_filter($k, function($ki) {return ! empty($ki);})));
-        else
-            return empty($k);
-    }
-
-    public static function pluck($entities, $field = '')
-    {
-        if ('' === $field)
-        {
-            return array_map(function($entity) {
-                return $entity->primaryKey();
-            }, $entities);
-        }
-        else
-        {
-            return array_map(function($entity) use ($field) {
-                return $entity->get($field);
-            }, $entities);
-        }
-    }
-
-    public static function sorter($args = array())
-    {
-        // Array multi - sorter utility
-        // returns a sorter that can (sub-)sort by multiple (nested) fields
-        // each ascending or descending independantly
-
-        /*$args = func_get_args( );*/
-        // + before a (nested) field indicates ascending sorting (default),
-        // example "+a.b.c"
-        // - before a (nested) field indicates descending sorting,
-        // example "-b.c.d"
-        $l = count($args);
-        if ($l)
-        {
-            $step = 1;
-            $sorter = array();
-            $variables = array();
-            $sorter_args = array();
-            $filter_args = array();
-            for ($i = $l-1; $i >= 0; $i--)
-            {
-                $field = $args[$i];
-                // if is array, it contains a filter function as well
-                array_unshift($filter_args, '$f' . $i);
-                if (is_array($field))
-                {
-                    array_unshift($sorter_args, $field[1]);
-                    $field = $field[0];
-                }
-                else
-                {
-                    array_unshift($sorter_args, null);
-                }
-                $field = (string)$field;
-                $dir = substr($field, 0, 1);
-                if ('-' === $dir)
-                {
-                    $desc = true;
-                    $field = substr($field, 1);
-                }
-                elseif ('+' === $dir)
-                {
-                    $desc = false;
-                    $field = substr($field, 1);
-                }
-                else
-                {
-                    // default ASC
-                    $desc = false;
-                }
-                $field = strlen($field) ? implode('', array_map(function($f) {return !strlen($f) ? '' : (preg_match('#^\\d+$#', $f) ? ('['.$f.']') : ('->get'.DialectNoSql::camelCase($f, true).'()'));}, explode('.', $field)))/*'["' . implode('"]["', explode('.', $field)) . '"]'*/ : '';
-                $a = '$a'.$field; $b = '$b'.$field;
-                if ($sorter_args[0])
-                {
-                    $a = 'call_user_func(' . $filter_args[0] . ',' . $a . ')';
-                    $b = 'call_user_func(' . $filter_args[0] . ',' . $b . ')';
-                }
-                $avar = '$a_'.$i; $bvar = '$b_'.$i;
-                array_unshift($variables, ''.$avar.'='.$a.';'.$bvar.'='.$b.';');
-                $lt = $desc ?(''.$step):('-'.$step); $gt = $desc ?('-'.$step):(''.$step);
-                array_unshift($sorter, "(".$avar." < ".$bvar." ? ".$lt." : (".$avar." > ".$bvar." ? ".$gt." : 0))");
-                $step <<= 1;
-            }
-            // use actual php anonynous function/closure
-            $sorter_factory = eval('return function('.implode(',',$filter_args).'){'.implode("\n", array(
-                '$sorter = function($a,$b) use('.implode(',',$filter_args).') {',
-                '    '.implode("\n", $variables).'',
-                '    return '.implode('+', $sorter).';',
-                '};',
-                'return $sorter;'
-            )).'};');
-            return call_user_func_array($sorter_factory, $sorter_args);
-        }
-        else
-        {
-            $a = '$a'; $b = '$b'; $lt = '-1'; $gt = '1';
-            $sorter = "".$a." < ".$b." ? ".$lt." : (".$a." > ".$b." ? ".$gt." : 0)";
-            return eval('return function($a,$b){return '.$sorter.';};');
-        }
-    }
-
     public static function fetchByPk($id, $default = null)
     {
         $entity = DialectNoSql::NoSqlHandler()->find(static::$collection, is_array(static::$pk) ? DialectNoSql::key(static::$pk, $id) : $id);
         return !empty($entity) ? new static(isset($entity[0])&&is_array($entity[0]) ? (array)$entity[0] : (array)$entity) : $default;
     }
 
-    public static function fetchAll($data = array(), $default = array())
+    public static function fetchAll($options = array(), $default = array())
     {
-        if (DialectNoSql::NoSqlHandler()->supportsCollectionQueries())
+        if (DialectNoSql::NoSqlHandler()->supportsConditionalQueries())
         {
-            $entities = DialectNoSql::NoSqlHandler()->findAll(static::$collection, (array)$data);
+            $entities = DialectNoSql::NoSqlHandler()->findAll(static::$collection, (array)$options);
             if (empty($entities)) return $default;
             foreach($entities as $i => $entity)
             {
@@ -1686,11 +1606,6 @@ class DialectNoSql
         }
 
         return $this->data[$field];
-    }
-
-    public function primaryKey($default = 0)
-    {
-        return $this->get(static::$pk, $default);
     }
 
     public function set($field, $val = null, $options = array())
@@ -1748,14 +1663,6 @@ class DialectNoSql
         $this->data = null;
         $this->isDirty = null;
         return $this;
-    }
-
-    public function beforeSave()
-    {
-    }
-
-    public function afterSave($result = 0)
-    {
     }
 
     public function __call($method, $args = array())
