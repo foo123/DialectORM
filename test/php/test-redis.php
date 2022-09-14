@@ -1,8 +1,8 @@
 <?php
 
 define('DIR', dirname(__FILE__));
-include(DIR.'/../../src/php/DialectORM.php');
-include(DIR.'/nosql/redis.php');
+include(DIR . '/../../src/php/DialectORM.php');
+include(DIR . '/nosql/redis.php');
 
 DialectNoSql::NoSqlHandler(new RedisStorage([
     'host' => '127.0.0.1',

@@ -58,9 +58,9 @@ def output(data):
 
 def test():
     output(Tweet.fetchByPk(3))
-    tweet = Tweet({'content' : 'hello redis3!'});
-    tweet.setId(3)
-    tweet.save()
+    #tweet = Tweet({'content' : 'hello redis3!'});
+    #tweet.setId(3)
+    #tweet.save()
     output(Tweet.fetchByPk(3));
 
 test()

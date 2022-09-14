@@ -1,11 +1,11 @@
 <?php
 
 define('DIR', dirname(__FILE__));
-include(DIR.'/../../src/php/DialectORM.php');
-include(DIR.'/sql/pdo-mysql.php');
+include(DIR . '/../../src/php/DialectORM.php');
+include(DIR . '/sql/pdo-mysql.php');
 
 DialectORM::dependencies([
-    'Dialect' => DIR.'/Dialect.php',
+    'Dialect' => DIR . '/../../../Dialect/src/php/Dialect.php',
 ]);
 DialectORM::DBHandler(new PDODb([
     'dsn' => 'mysql:host=localhost;dbname=dialectorm',

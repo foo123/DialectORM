@@ -27,10 +27,9 @@ else:
 
 
 from sql.mysql import getDB
-from Dialect import Dialect
 
 DialectORM.dependencies({
-    'Dialect' : Dialect # provide actual class, i.e Dialect or directory of module, i.e DIR
+    'Dialect' : os.path.join(DIR, '../../../Dialect/src/python/') # provide actual class, i.e Dialect or directory of module, i.e DIR
 })
 DialectORM.DBHandler(getDB(DialectORM)({
     'db' : 'dialectorm',

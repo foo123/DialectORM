@@ -5,6 +5,9 @@ Tiny, fast, super-simple but versatile **Object-Relational-Mapper (ORM)** **with
 
 ![DialectORM](/dialectorm.jpg)
 
+version **2.0.1**
+
+
 **see also:**
 
 * [ModelView](https://github.com/foo123/modelview.js) a simple, fast, powerful and flexible MVVM framework for JavaScript

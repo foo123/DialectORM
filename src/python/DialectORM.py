@@ -2,7 +2,7 @@
 #   DialectORM,
 #   tiny, fast, super-simple but versatile Object-Relational-Mapper with Relationships and Object-NoSql-Mapper for PHP, JavaScript, Python
 #
-#   @version: 2.0.0
+#   @version: 2.0.1
 #   https://github.com/foo123/DialectORM
 ##
 
@@ -17,20 +17,20 @@ def lcfirst(s):
 
 def empty(arg):
     if isinstance(arg, str):
-        return ('0'==arg) or (not len(arg))
+        return ('0' == arg) or (not len(arg))
     return (not arg)
 
 
 GUID = 0
-def guid( ):
+def guid():
     global GUID
     GUID += 1
     return str(hex(int(time.time()))[2:])+'__'+str(hex(GUID)[2:])
 
-def createFunction( args, sourceCode, additional_symbols=dict() ):
+def createFunction(args, sourceCode, additional_symbols = dict()):
     # http://code.activestate.com/recipes/550804-create-a-restricted-python-function-from-a-string/
 
-    funcName = 'tinyorm_func_' + guid( )
+    funcName = 'dialectorm_func_' + guid()
 
     # The list of symbols that are included by default in the generated
     # function's environment
@@ -151,7 +151,7 @@ Dialect = None
 
 class DialectORMEntity:
     @classmethod
-    def snake_case(klass, s, sep='_'):
+    def snake_case(klass, s, sep = '_'):
         s = re.sub('[A-Z]', lambda m: sep + m.group(0).lower(), lcfirst(s))
         return s[1:] if sep == s[0]  else s
 
@@ -172,14 +172,14 @@ class DialectORMEntity:
 
     @classmethod
     def emptykey(klass, k):
-        if isinstance(k, (list, tuple)):
+        if isinstance(k, (list,tuple)):
             return empty(k) or (len(k) > len(list(filter(lambda ki: not empty(ki), k))))
         else:
             return empty(k)
 
     @classmethod
     def strkey(klass, k):
-        if isinstance(k, (list, tuple)):
+        if isinstance(k, (list,tuple)):
             return ':&:'.join(list(map(lambda ki: str(ki), k)))
         else:
             return str(k)
@@ -229,7 +229,7 @@ class DialectORMEntity:
                     # default ASC
                     desc = False
 
-                field = ''.join(list(map(lambda f: '' if not len(f) else (('['+f+']') if re.search(r'^\d+$', f) else ('.get'+klass.camelCase(f, True)+'()')), field.split('.')))) if len(field) else ''
+                field = ''.join(list(map(lambda f: '' if not len(f) else (('['+f+']') if re.search(r'^\d+$', f) else ('.get(\''+f+'\')')), field.split('.')))) if len(field) else ''
                 a = "a"+field
                 b = "b"+field
                 if sorter_args[0]:
@@ -338,7 +338,7 @@ class DialectORM(DialectORMEntity):
     https://github.com/foo123/DialectORM
     """
 
-    VERSION = '2.0.0'
+    VERSION = '2.0.1'
 
     Entity = DialectORMEntity
     Exception = DialectORMException
@@ -404,7 +404,7 @@ class DialectORM(DialectORMEntity):
     @classmethod
     def fetchByPk(klass, id, default = None):
         entity = DialectORM.DBHandler().get(
-            DialectORM.SQLBuilder().Select(
+            DialectORM.SQLBuilder().clear().Select(
                     klass.fields
                 ).From(
                     DialectORM.tbl(klass.table)
@@ -419,7 +419,7 @@ class DialectORM(DialectORMEntity):
         options = {'conditions' : {}}
         options.update(opts)
 
-        sql = DialectORM.SQLBuilder().Select(
+        sql = DialectORM.SQLBuilder().clear().Select(
             'COUNT(*) AS cnt'
             ).From(
                 DialectORM.tbl(klass.table)
@@ -447,7 +447,7 @@ class DialectORM(DialectORMEntity):
             default = None
 
         pk = klass.pk
-        sql = DialectORM.SQLBuilder().Select(
+        sql = DialectORM.SQLBuilder().clear().Select(
                 klass.fields
             ).From(
                 DialectORM.tbl(klass.table)
@@ -534,7 +534,7 @@ class DialectORM(DialectORMEntity):
 
                             selects.append(subquery.sql())
 
-                        rentities = DialectORM.DBHandler().get(sql.Union(selects, False).sql())
+                        rentities = DialectORM.DBHandler().get(sql.clear().Union(selects, False).sql())
                         for i in range(len(rentities)):
                             rentities[i] = cls(rentities[i])
                     else:
@@ -593,7 +593,7 @@ class DialectORM(DialectORMEntity):
                     else:
                         conditions[pk2] = {'in':ids}
                     reljoin = DialectORM.DBHandler().get(
-                        DialectORM.SQLBuilder().Select(
+                        DialectORM.SQLBuilder().clear().Select(
                             '*'
                         ).From(
                             ab
@@ -630,7 +630,7 @@ class DialectORM(DialectORMEntity):
 
                             selects.append(subquery.sql())
 
-                        rentities = DialectORM.DBHandler().get(sql.Union(selects, False).sql())
+                        rentities = DialectORM.DBHandler().get(sql.clear().Union(selects, False).sql())
                         for i in range(len(rentities)):
                             rentities[i] = cls(rentities[i])
                     else:
@@ -692,7 +692,7 @@ class DialectORM(DialectORMEntity):
                     else:
                         conditions[fk] = {'in':ids}
                     DialectORM.DBHandler().query(
-                        DialectORM.SQLBuilder().Delete(
+                        DialectORM.SQLBuilder().clear().Delete(
                             ).From(
                                 DialectORM.tbl(rel[4])
                             ).Where(
@@ -716,14 +716,14 @@ class DialectORM(DialectORMEntity):
                 conditions[DialectORM.strkey(pk)] = {'or':[DialectORM.key(pk, id, {}) for id in ids]}
             else:
                 conditions[pk] = {'in':ids}
-            sql = DialectORM.SQLBuilder().Delete(
+            sql = DialectORM.SQLBuilder().clear().Delete(
                 ).From(
                     DialectORM.tbl(klass.table)
                 ).Where(
                     conditions
                 )
         else:
-            sql = DialectORM.SQLBuilder().Delete(
+            sql = DialectORM.SQLBuilder().clear().Delete(
                 ).From(
                     DialectORM.tbl(klass.table)
                 ).Where(
@@ -1009,7 +1009,7 @@ class DialectORM(DialectORMEntity):
             type = rel[0].lower()
             cls = rel[1]
             if 'belongstomany' == type:
-                jtbl = TnyORM.tbl(rel[4])
+                jtbl = DialectORM.tbl(rel[4])
                 eids = []
                 for ent in entity:
                     if not isinstance(ent, cls): continue

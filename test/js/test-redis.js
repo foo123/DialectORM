@@ -1,5 +1,6 @@
-let DialectORM = require('../../src/js/DialectORM.js');
-let RedisStorage = require('./nosql/redis.js')(DialectORM.NoSql);
+"use strict";
+const DialectORM = require('../../src/js/DialectORM.js');
+const RedisStorage = require('./nosql/redis.js')(DialectORM.NoSql);
 
 DialectORM.NoSql.NoSqlHandler(new RedisStorage({
     'host' : '127.0.0.1',
