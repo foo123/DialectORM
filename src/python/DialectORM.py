@@ -2,150 +2,12 @@
 #   DialectORM,
 #   tiny, fast, super-simple but versatile Object-Relational-Mapper with Relationships and Object-NoSql-Mapper for PHP, JavaScript, Python
 #
-#   @version: 2.0.1
+#   @version: 2.1.0
 #   https://github.com/foo123/DialectORM
 ##
 
 import re, time, abc, inspect, functools
 from collections import OrderedDict
-
-def ucfirst(s):
-    return s[0].upper() + s[1:]
-
-def lcfirst(s):
-    return s[0].lower() + s[1:]
-
-def empty(arg):
-    if isinstance(arg, str):
-        return ('0' == arg) or (not len(arg))
-    return (not arg)
-
-
-GUID = 0
-def guid():
-    global GUID
-    GUID += 1
-    return str(hex(int(time.time()))[2:])+'__'+str(hex(GUID)[2:])
-
-def createFunction(args, sourceCode, additional_symbols = dict()):
-    # http://code.activestate.com/recipes/550804-create-a-restricted-python-function-from-a-string/
-
-    funcName = 'dialectorm_func_' + guid()
-
-    # The list of symbols that are included by default in the generated
-    # function's environment
-    SAFE_SYMBOLS = [
-        "list", "dict", "enumerate", "tuple", "set", "long", "float", "object",
-        "bool", "callable", "True", "False", "dir",
-        "frozenset", "getattr", "hasattr", "abs", "cmp", "complex",
-        "divmod", "id", "pow", "round", "slice", "vars",
-        "hash", "hex", "int", "isinstance", "issubclass", "len",
-        "map", "filter", "max", "min", "oct", "chr", "ord", "range",
-        "reduce", "repr", "str", "type", "zip", "xrange", "None",
-        "Exception", "KeyboardInterrupt"
-    ]
-
-    # Also add the standard exceptions
-    __bi = __builtins__
-    if type(__bi) is not dict:
-        __bi = __bi.__dict__
-    for k in __bi:
-        if k.endswith("Error") or k.endswith("Warning"):
-            SAFE_SYMBOLS.append(k)
-    del __bi
-
-    # Include the sourcecode as the code of a function funcName:
-    s = "def " + funcName + "(%s):\n" % args
-    s += sourceCode # this should be already properly padded
-
-    # Byte-compilation (optional)
-    byteCode = compile(s, "<string>", 'exec')
-
-    # Setup the local and global dictionaries of the execution
-    # environment for __TheFunction__
-    bis   = dict() # builtins
-    globs = dict()
-    locs  = dict()
-
-    # Setup a standard-compatible python environment
-    bis["locals"]  = lambda: locs
-    bis["globals"] = lambda: globs
-    globs["__builtins__"] = bis
-    globs["__name__"] = "SUBENV"
-    globs["__doc__"] = sourceCode
-
-    # Determine how the __builtins__ dictionary should be accessed
-    if type(__builtins__) is dict:
-        bi_dict = __builtins__
-    else:
-        bi_dict = __builtins__.__dict__
-
-    # Include the safe symbols
-    for k in SAFE_SYMBOLS:
-
-        # try from current locals
-        try:
-          locs[k] = locals()[k]
-          continue
-        except KeyError:
-          pass
-
-        # Try from globals
-        try:
-          globs[k] = globals()[k]
-          continue
-        except KeyError:
-          pass
-
-        # Try from builtins
-        try:
-          bis[k] = bi_dict[k]
-        except KeyError:
-          # Symbol not available anywhere: silently ignored
-          pass
-
-    # Include the symbols added by the caller, in the globals dictionary
-    globs.update(additional_symbols)
-
-    # Finally execute the Function statement:
-    eval(byteCode, globs, locs)
-
-    # As a result, the function is defined as the item funcName
-    # in the locals dictionary
-    fct = locs[funcName]
-    # Attach the function to the globals so that it can be recursive
-    del locs[funcName]
-    globs[funcName] = fct
-
-    # Attach the actual source code to the docstring
-    fct.__doc__ = sourceCode
-
-    # return the compiled function object
-    return fct
-
-def import_module(name, path):
-    import imp
-    mod_fp = None
-    try:
-        mod_fp, mod_path, mod_desc  = imp.find_module(name, [path])
-        mod = getattr(imp.load_module(name, mod_fp, mod_path, mod_desc), name)
-    except ImportError as exc:
-        mod = None
-    finally:
-        if mod_fp: mod_fp.close()
-    return mod
-
-def eq(a, b):
-    if isinstance(a, (list,tuple)) and isinstance(b, (list,tuple)):
-        if len(a) == len(b):
-            for i in range(len(a)):
-                if a[i] != b[i]: return False
-            return True
-        return False
-    return a == b
-
-def array(x):
-    return list(x) if isinstance(x, (list,tuple)) else [x]
 
 Dialect = None
 
@@ -332,17 +194,160 @@ class DialectORMRelation:
         self.field = None
         self.data = False
 
+# https://en.wikipedia.org/wiki/Entity%E2%80%93attribute%E2%80%93value_model
+class DialectORMEAV:
+    def __init__(self, tbl, fk, pk, key, val):
+        self.tbl = tbl
+        self.fk = fk
+        self.pk = pk
+        self.key = key
+        self.val = val
+        self.data = {}
+        self.isDirty = {}
+        self.entitykey = None
+
+    def populate(self, data):
+        if isinstance(data, list) and len(data):
+            for entry in data:
+                if (not entry) or (self.key not in entry): continue
+                key = str(entry[self.key])
+                self.data[key] = entry
+                if (self.pk not in entry) or DialectORM.emptykey(entry[self.pk]):
+                    self.isDirty[key] = True
+                if (self.fk in entry) and (not DialectORM.emptykey(entry[self.fk])):
+                    if empty(self.entitykey):
+                        self.entitykey = entry[self.fk]
+                    elif str(self.entitykey) != str(entry[self.fk]):
+                        raise DialectORM.Exception('DialectORMEAV different EntityKey in data from the same entity')
+        return self
+
+    def entity(self, entitykey = None):
+        if isinstance(entitykey, DialectORM): entitykey = entitykey.primaryKey()
+        self.entitykey = entitykey
+        return self
+
+    def clear(self):
+        self.data = {}
+        self.isDirty = {}
+        return self
+
+    def get(self, key, default = None):
+        res = False
+        key = str(key)
+        if key not in self.data:
+            # lazy load
+            self.load([key])
+            if key not in self.data: self.data[key] = False
+        res = self.data[key]
+        return default if res is False else res
+
+    def set(self, key, val):
+        key = str(key)
+        if key in self.data:
+            prev = self.data[key][self.val]
+            if prev != val:
+                self.data[key][self.val] = val
+                self.isDirty[key] = True
+        else:
+            self.data[key] = {};
+            self.data[key][self.val] = val
+            self.isDirty[key] = True
+        return self
+
+    def load(self, keys = None):
+        if not DialectORM.emptykey(self.entitykey):
+            conditions = {}
+            conditions[self.fk] = self.entitykey
+            if not empty(keys): conditions[self.key] = {'in':array(keys)}
+            # load efficiently
+            self.populate(DialectORM.DBHandler().get(DialectORM.SQLBuilder().clear().Select('*').From(DialectORM.tbl(this.tbl)).Where(conditions).sql()))
+        return self
+
+    def save(self, keys = None):
+        res = 0
+        if not empty(self.isDirty):
+            pk = self.pk
+            fk = self.fk
+            key = self.key
+            val = self.val
+            fields = [pk, fk, key, val]
+            entitykey = None if DialectORM.emptykey(self.entitykey) else self.entitykey
+            keys = self.data.keys() if empty(keys) else array(keys)
+            ids = []
+            update = []
+            insert = []
+            for k in keys:
+                k = str(k);
+                if (k not in self.data) or (not self.data[k]) or (k not in self.isDirty): continue
+                d = self.data[k]
+                id = d[pk] if (pk in d) else None
+                if (id is not None) and not DialectORM.emptykey(id):
+                    v = d[val]
+                    upd = {}
+                    upd[v] = {}
+                    upd[v][pk] = id
+                    update.append(upd)
+                    ids.append(id)
+                    del self.isDirty[k]
+                elif !empty(entitykey):
+                    insert.append(map(lambda f: entitykey if f==fk else (d[f] if f in d else None), fields))
+                    del self.isDirty[k]
+
+            if len(update):
+                # update efficiently
+                upd = {}
+                upd[val] = {'case':update}
+                conditions = {}
+                conditions[pk] = {'in':ids}
+                r = DialectORM.DBHandler().query(DialectORM.SQLBuilder().clear().Update(DialectORM.tbl(this.tbl)).Set(upd).Where(conditions).sql())
+                res += r['affectedRows']
+            if len(insert):
+                # insert efficiently
+                r = DialectORM.DBHandler().query(DialectORM.SQLBuilder().clear().Insert(DialectORM.tbl(this.tbl), fields).Values(insert).sql())
+                res += r['affectedRows']
+                conditions = {}
+                conditions[fk] = entitykey
+                conditions[key] = {'in':map(lambda ins: ins[2], insert)} #key
+                r = DialectORM.DBHandler().get(DialectORM.SQLBuilder().clear().Select([pk, key]).From(DialectORM.tbl(this.tbl)).Where(conditions).sql())
+                for _ in r: self.data[_[key]][pk] = _[pk]
+        return res
+
+    def delete(self, keys = None):
+        res = 0
+        if not empty(self.data):
+            pk = self.pk
+            keys = self.data.keys() if empty(keys) else array(keys)
+            ids = []
+            for k in keys:
+                k = str(k)
+                if (k not in self.data) or (not self.data[k]): continue
+                d = self.data[k]
+                id = d[pk] if (pk in d) else None
+                if (id is not None) and (not DialectORM.emptykey(id)): ids.append(id)
+                del self.data[k]
+                if k in self.isDirty: del self.isDirty[k]
+
+            if len(ids):
+                # delete efficiently
+                conditions = {}
+                conditions[pk] = {'in':ids}
+                r = DialectORM.DBHandler().query(DialectORM.SQLBuilder().clear().Delete().From(DialectORM.tbl(this.tbl)).Where(conditions).sql())
+                res = r['affectedRows']
+        return res
+
+
 class DialectORM(DialectORMEntity):
     """
     DialectORM for Python,
     https://github.com/foo123/DialectORM
     """
 
-    VERSION = '2.0.1'
+    VERSION = '2.1.0'
 
     Entity = DialectORMEntity
     Exception = DialectORMException
     Relation = DialectORMRelation
+    EAV = DialectORMEAV
     IDb = IDialectORMDb
 
     deps = {}
@@ -1581,5 +1586,144 @@ class DialectNoSql(DialectORMEntity):
 
 
 DialectORM.NoSql = DialectNoSql
+
+# utils
+def ucfirst(s):
+    return s[0].upper() + s[1:]
+
+def lcfirst(s):
+    return s[0].lower() + s[1:]
+
+def empty(arg):
+    if isinstance(arg, str):
+        return ('0' == arg) or (not len(arg))
+    return (not arg)
+
+
+GUID = 0
+def guid():
+    global GUID
+    GUID += 1
+    return str(hex(int(time.time()))[2:])+'__'+str(hex(GUID)[2:])
+
+def createFunction(args, sourceCode, additional_symbols = dict()):
+    # http://code.activestate.com/recipes/550804-create-a-restricted-python-function-from-a-string/
+
+    funcName = 'dialectorm_func_' + guid()
+
+    # The list of symbols that are included by default in the generated
+    # function's environment
+    SAFE_SYMBOLS = [
+        "list", "dict", "enumerate", "tuple", "set", "long", "float", "object",
+        "bool", "callable", "True", "False", "dir",
+        "frozenset", "getattr", "hasattr", "abs", "cmp", "complex",
+        "divmod", "id", "pow", "round", "slice", "vars",
+        "hash", "hex", "int", "isinstance", "issubclass", "len",
+        "map", "filter", "max", "min", "oct", "chr", "ord", "range",
+        "reduce", "repr", "str", "type", "zip", "xrange", "None",
+        "Exception", "KeyboardInterrupt"
+    ]
+
+    # Also add the standard exceptions
+    __bi = __builtins__
+    if type(__bi) is not dict:
+        __bi = __bi.__dict__
+    for k in __bi:
+        if k.endswith("Error") or k.endswith("Warning"):
+            SAFE_SYMBOLS.append(k)
+    del __bi
+
+    # Include the sourcecode as the code of a function funcName:
+    s = "def " + funcName + "(%s):\n" % args
+    s += sourceCode # this should be already properly padded
+
+    # Byte-compilation (optional)
+    byteCode = compile(s, "<string>", 'exec')
+
+    # Setup the local and global dictionaries of the execution
+    # environment for __TheFunction__
+    bis   = dict() # builtins
+    globs = dict()
+    locs  = dict()
+
+    # Setup a standard-compatible python environment
+    bis["locals"]  = lambda: locs
+    bis["globals"] = lambda: globs
+    globs["__builtins__"] = bis
+    globs["__name__"] = "SUBENV"
+    globs["__doc__"] = sourceCode
+
+    # Determine how the __builtins__ dictionary should be accessed
+    if type(__builtins__) is dict:
+        bi_dict = __builtins__
+    else:
+        bi_dict = __builtins__.__dict__
+
+    # Include the safe symbols
+    for k in SAFE_SYMBOLS:
+
+        # try from current locals
+        try:
+          locs[k] = locals()[k]
+          continue
+        except KeyError:
+          pass
+
+        # Try from globals
+        try:
+          globs[k] = globals()[k]
+          continue
+        except KeyError:
+          pass
+
+        # Try from builtins
+        try:
+          bis[k] = bi_dict[k]
+        except KeyError:
+          # Symbol not available anywhere: silently ignored
+          pass
+
+    # Include the symbols added by the caller, in the globals dictionary
+    globs.update(additional_symbols)
+
+    # Finally execute the Function statement:
+    eval(byteCode, globs, locs)
+
+    # As a result, the function is defined as the item funcName
+    # in the locals dictionary
+    fct = locs[funcName]
+    # Attach the function to the globals so that it can be recursive
+    del locs[funcName]
+    globs[funcName] = fct
+
+    # Attach the actual source code to the docstring
+    fct.__doc__ = sourceCode
+
+    # return the compiled function object
+    return fct
+
+def import_module(name, path):
+    import imp
+    mod_fp = None
+    try:
+        mod_fp, mod_path, mod_desc  = imp.find_module(name, [path])
+        mod = getattr(imp.load_module(name, mod_fp, mod_path, mod_desc), name)
+    except ImportError as exc:
+        mod = None
+    finally:
+        if mod_fp: mod_fp.close()
+    return mod
+
+def eq(a, b):
+    if isinstance(a, (list,tuple)) and isinstance(b, (list,tuple)):
+        if len(a) == len(b):
+            for i in range(len(a)):
+                if a[i] != b[i]: return False
+            return True
+        return False
+    return a == b
+
+def array(x):
+    return list(x) if isinstance(x, (list,tuple)) else [x]
 
 __all__ = ['DialectORM']

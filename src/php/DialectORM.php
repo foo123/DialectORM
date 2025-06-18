@@ -3,7 +3,7 @@
 *   DialectORM,
 *   tiny, fast, super-simple but versatile Object-Relational-Mapper with Relationships and Object-NoSql-Mapper for PHP, JavaScript, Python
 *
-*   @version: 2.0.1
+*   @version: 2.1.0
 *   https://github.com/foo123/DialectORM
 **/
 
@@ -76,7 +76,7 @@ abstract class DialectORMEntity
         // returns a sorter that can (sub-)sort by multiple (nested) fields
         // each ascending or descending independantly
 
-        /*$args = func_get_args( );*/
+        /*$args = func_get_args();*/
         // + before a (nested) field indicates ascending sorting (default),
         // example "+a.b.c"
         // - before a (nested) field indicates descending sorting,
@@ -250,9 +250,246 @@ class DialectORMRelation
     }
 }
 
+// https://en.wikipedia.org/wiki/Entity%E2%80%93attribute%E2%80%93value_model
+class DialectORMEAV
+{
+    public $tbl = null;
+    public $fk = null;
+    public $pk = null;
+    public $key = null;
+    public $val = null;
+    public $data = null;
+    public $isDirty = null;
+    public $entitykey = null;
+
+    public function __construct($tbl, $fk, $pk, $key, $val)
+    {
+        $this->tbl = $tbl;
+        $this->fk = $fk;
+        $this->pk = $pk;
+        $this->key = $key;
+        $this->val = $val;
+        $this->data = array();
+        $this->isDirty = array();
+    }
+
+    public function populate($data)
+    {
+        if (is_array($data) && !empty($data))
+        {
+            foreach ($data as $entry)
+            {
+                $entry = (array)$entry;
+                if (!isset($entry[$this->key])) continue;
+                $key = $entry[$this->key];
+                $this->data[$key]] = $entry;
+                if (!isset($entry[$this->pk]) || DialectORM::emptykey($entry[$this->pk]))
+                {
+                    $this->isDirty[$key] = true;
+                }
+                if (isset($entry[$this->fk]) && !DialectORM::emptykey($entry[$this->fk]))
+                {
+                    if (empty($this->entitykey))
+                    {
+                        $this->entitykey = $entry[$this->fk];
+                    }
+                    elseif (strval($this->entitykey) !== strval($entry[$this->fk]))
+                    {
+                        throw new DialectORMException('DialectORMEAV different EntityKey in data from the same entity', 1);
+                    }
+                }
+            }
+        }
+        return $this;
+    }
+
+    public function entity($entitykey = null)
+    {
+        if ($entitykey instanceof DialectORM) $entitykey = $entitykey->primaryKey();
+        $this->entitykey = $entitykey;
+        return $this;
+    }
+
+    public function clear()
+    {
+        $this->data = array();
+        $this->isDirty = array();
+        return $this;
+    }
+
+    public function get($key, $default = null)
+    {
+        $res = false;
+        if (!isset($this->data[$key]))
+        {
+            // lazy load
+            $this->load(array($key));
+            if (!isset($this->data[$key])) $this->data[$key] = false;
+        }
+        $res = $this->data[$key];
+        return false === $res ? $default : $res;
+    }
+
+    public function set($key, $val)
+    {
+        if (isset($this->data[$key]))
+        {
+            $prev = $this->data[$key][$this->val];
+            if ($prev !== $val)
+            {
+                $this->data[$key][$this->val] = $val;
+                $this->isDirty[$key] = true;
+            }
+        }
+        else
+        {
+            $this->data[$key] = array();
+            $this->data[$key][$this->val] = $val;
+            $this->isDirty[$key] = true;
+        }
+        return $this;
+    }
+
+    public function load($keys = null)
+    {
+        if (!DialectORM::emptykey($this->entitykey))
+        {
+            $conditions = array();
+            $conditions[$this->fk] = $this->entitykey;
+            if (!empty($keys)) $conditions[$this->key] = array('in'=>(array)$keys);
+            // load efficiently
+            $this->populate(DialectORM::DBHandler()->get(
+                DialectORM::SQLBuilder()->clear()
+                ->Select('*')
+                ->From(DialectORM::tbl($this->tbl))
+                ->Where($conditions)
+                ->sql()
+            ));
+        }
+        return $this;
+    }
+
+    public function save($keys = null)
+    {
+        $res = 0;
+        if (!empty($this->isDirty))
+        {
+            $pk = $this->pk;
+            $fk = $this->fk;
+            $key = $this->key;
+            $val = $this->val;
+            $fields = array($pk, $fk, $key, $val);
+            $entitykey = DialectORM::emptykey($this->entitykey) ? null : $this->entitykey;
+            $keys = empty($keys) ? array_keys($this->isDirty) : (array)$keys;
+            $ids = array();
+            $update = array();
+            $insert = array();
+            foreach ($keys as $k)
+            {
+                if (!isset($this->data[$k]) || !$this->data[$k] || empty($this->isDirty[$k])) continue;
+                $d = $this->data[$k];
+                $id = isset($d[$pk]) ? $d[$pk] : null;
+                if (!is_null($id) && !DialectORM::emptykey($id))
+                {
+                    $v = $d[$val];
+                    $upd = array();
+                    $upd[$v] = array();
+                    $upd[$v][$pk] = $id;
+                    $update[] = $upd;
+                    $ids[] = $id;
+                    unset($this->isDirty[$k]);
+                }
+                elseif (!empty($entitykey))
+                {
+                    $insert[] = array_map(function($f) use ($d,$fk,$entitykey) {return $f===$fk ? $entitykey : (isset($d[$f]) ? $d[$f] : null);}, $fields);
+                    unset($this->isDirty[$k]);
+                }
+            }
+            if (!empty($update))
+            {
+                // update efficiently
+                $upd = array();
+                $upd[$val] = array('case'=>$update);
+                $conditions = array();
+                $conditions[$pk] = array('in'=>$ids);
+                $r = DialectORM::DBHandler()->query(
+                    DialectORM::SQLBuilder()->clear()
+                    ->Update(DialectORM::tbl($this->tbl))
+                    ->Set($upd)
+                    ->Where($conditions)
+                    ->sql()
+                );
+                $res += $r['affectedRows'];
+            }
+            if (!empty($insert))
+            {
+                // insert efficiently
+                $r = DialectORM::DBHandler()->query(
+                    DialectORM::SQLBuilder()->clear()
+                    ->Insert(DialectORM::tbl($this->tbl), $fields)
+                    ->Values($insert)
+                    ->sql()
+                );
+                $res += $r['affectedRows'];
+                $conditions = array();
+                $conditions[$fk] = $entitykey;
+                $conditions[$key] = array('in'=>array_map(function($ins) {return $ins[2/*key*/];}, $insert));
+                $r = DialectORM::DBHandler()->get(
+                    DialectORM::SQLBuilder()->clear()
+                    ->Select(array($pk, $key))
+                    ->From(DialectORM::tbl($this->tbl))
+                    ->Where($conditions)
+                    ->sql()
+                );
+                foreach ($r as $_)
+                {
+                    $this->data[$_[$key]][$pk] = $_[$pk];
+                }
+            }
+        }
+        return $res;
+    }
+
+    public function delete($keys = null)
+    {
+        $res = 0;
+        if (!empty($this->data))
+        {
+            $pk = $this->pk;
+            $keys = empty($keys) ? array_keys($this->data) : (array)$keys;
+            $ids = array();
+            foreach ($keys as $k)
+            {
+                if (!isset($this->data[$k]) || !$this->data[$k]) continue;
+                $d = $this->data[$k];
+                $id = isset($d[$pk]) ? $d[$pk] : null;
+                if (!is_null($id) && !DialectORM::emptykey($id)) $ids[] = $id;
+                unset($this->data[$k]);
+                unset($this->isDirty[$k]);
+            }
+            if (!empty($ids))
+            {
+                // delete efficiently
+                $conditions = array();
+                $conditions[$pk] = array('in'=>$ids);
+                $r = DialectORM::DBHandler()->query(
+                    DialectORM::SQLBuilder()
+                        ->clear()
+                        ->Delete()
+                        ->From(DialectORM::tbl($this->tbl))
+                        ->Where($conditions)
+                        ->sql()
+                );
+                $res = $r['affectedRows'];
+            }
+        }
+        return $res;
+    }
+}
+
 class DialectORM extends DialectORMEntity
 {
-    const VERSION = '2.0.1';
+    const VERSION = '2.1.0';
 
     protected static $deps = array();
     protected static $dbh = null;
@@ -574,7 +811,7 @@ class DialectORM extends DialectORMEntity
                             foreach ($fids as $id)
                             {
                                 $conditions = DialectORM::key($rpk, $id, array());
-                                if ( isset($options['related'][$field]['conditions']) )
+                                if (isset($options['related'][$field]['conditions']))
                                     $conditions = array_merge($options['related'][$field]['conditions'], $conditions);
 
                                 $subquery = $sql->subquery()
@@ -1264,7 +1501,7 @@ class DialectORM extends DialectORMEntity
 
     private function _populate($data)
     {
-        if ( empty($data) ) return $this;
+        if (empty($data)) return $this;
 
         if (is_array(static::$pk))
         {
@@ -1539,7 +1776,7 @@ class DialectNoSqlException extends Exception
 
 class DialectNoSql extends DialectORMEntity
 {
-    const VERSION = '2.0.1';
+    const VERSION = '2.1.0';
 
     protected static $strh = null;
 

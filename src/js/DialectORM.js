@@ -2,7 +2,7 @@
 *   DialectORM,
 *   tiny, fast, super-simple but versatile Object-Relational-Mapper with Relationships and Object-NoSql-Mapper for PHP, JavaScript, Python
 *
-*   @version: 2.0.1
+*   @version: 2.1.0
 *   https://github.com/foo123/DialectORM
 **/
 !function(root, name, factory) {
@@ -13,124 +13,10 @@ else if (('function'===typeof define)&&define.amd&&('function'===typeof require)
     define(name,['module'],function(module) {factory.moduleUri = module.uri; return factory.call(root);});
 else if (!(name in root)) /* Browser/WebWorker/.. */
     (root[name] = factory.call(root)||1)&&('function'===typeof(define))&&define.amd&&define(function() {return root[name];} );
-}(  /* current root */          'undefined' !== typeof self ? self : this,
-    /* module name */           "DialectORM",
-    /* module factory */        function ModuleFactory__DialectORM(undef) {
+}(/* current root */          'undefined' !== typeof self ? self : this,
+  /* module name */           "DialectORM",
+  /* module factory */        function ModuleFactory__DialectORM(undef) {
 "use strict";
-
-function esc_re(s)
-{
-    return s.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-}
-function ucfirst(s)
-{
-    return s.charAt(0).toUpperCase() + s.slice(1);
-}
-function lcfirst(s)
-{
-    return s.charAt(0).toLowerCase() + s.slice(1);
-}
-function is_string(arg)
-{
-    return Object.prototype.toString.call(arg) === '[object String]';
-}
-function is_array(arg)
-{
-    return Object.prototype.toString.call(arg) === '[object Array]';
-}
-function is_obj(arg)
-{
-    return Object.prototype.toString.call(arg) === '[object Object]';
-}
-function empty(arg)
-{
-    if (is_string(arg)) return ('0' === arg) || (0 === arg.length);
-    if (is_array(arg)) return (0 === arg.length);
-    if (is_obj(arg)) return (0 === Object.keys(arg).length);
-    return !arg;
-}
-function has(o, k)
-{
-    return is_array(o) ? (-1 !== o.indexOf(k)) : (Object.prototype.hasOwnProperty.call(o, k));
-}
-function merge(/*args*/)
-{
-    let o = arguments[0] || {}, n = arguments.length, i = 1, o2, k;
-    while (i<n)
-    {
-        o2 = arguments[i++];
-        for (k in o2)
-        {
-            if (has(o2, k))
-                o[k] = o2[k];
-        }
-    }
-    return o;
-}
-function eq(a, b)
-{
-    if (is_array(a) && is_array(b))
-    {
-        if (a.length === b.length)
-        {
-            for (let i = 0, n = a.length; i < n; ++i)
-                if (a[i] !== b[i]) return false;
-            return true;
-        }
-        return false;
-    }
-    return a === b;
-}
-function array(x)
-{
-    return is_array(x) ? x : [x];
-}
-function NotImplemented()
-{
-    throw new Error('DialectORM: Method Not Implemented Error!');
-}
-
-const magicMethodsProxy = {
-    get: function(target, prop, receiver)  {
-        const proxy = this;
-
-        // Does prop exists? Is it a method?
-        if ('function' === typeof(target[prop]))
-        {
-            // Wrap it around a function and return it
-            return function(...args) {
-                // in order to preserve the default arguments the method may have, we pass undefined
-                // instead of an empty arguments object
-                var value = target[prop].apply(target, (args.length ? args : undefined));
-                // it is important to return the proxy instead of the target in order to make
-                // future calls to this method
-                return value === target ? proxy : value;
-            };
-        }
-
-        // Does prop exists?
-        if (undefined != target[prop])
-        {
-            return target[prop];
-        }
-
-        prop = String(prop);
-        // Falls to __call
-        if (
-            'function' === typeof(target.__call) &&
-            // only these magic methods
-            ('get' === prop.slice(0,3) || 'set' === prop.slice(0,3) || 'has' === prop.slice(0,3) || 'assoc' === prop.slice(0,5) || 'dissoc' === prop.slice(0,6))
-        )
-        {
-            return function(...args) {
-                var value = target.__call(prop, args, proxy);
-                // it is important to return the proxy instead of the target in order to make
-                // future calls to this method
-                return value === target ? proxy : value;
-            };
-        }
-    }
-};
 
 var Dialect = null
 
@@ -373,6 +259,246 @@ class DialectORMRelation
         this.ab = ab || null;
         this.field = null;
         this.data = false;
+    }
+}
+
+// https://en.wikipedia.org/wiki/Entity%E2%80%93attribute%E2%80%93value_model
+class DialectORMEAV
+{
+    tbl = null;
+    fk = null;
+    pk = null;
+    key = null;
+    val = null;
+    data = null;
+    isDirty = null;
+    entitykey = null;
+
+    constructor(tbl, fk, pk, key, val)
+    {
+        this.tbl = tbl;
+        this.fk = fk;
+        this.pk = pk;
+        this.key = key;
+        this.val = val;
+        this.data = {};
+        this.isDirty = {};
+    }
+
+    populate(data)
+    {
+        if (is_array(data) && data.length)
+        {
+            for (var i=0,dl=data.length,entry; i<dl; ++i)
+            {
+                entry = data[i];
+                if (!entry || (null == entry[this.key])) continue;
+                var key = entry[this.key];
+                this.data[key] = entry;
+                if ((null == entry[this.pk]) || DialectORM.emptykey(entry[this.pk]))
+                {
+                    this.isDirty[key] = true;
+                }
+                if ((null != entry[this.fk]) && !DialectORM.emptykey(entry[this.fk]))
+                {
+                    if (empty(this.entitykey))
+                    {
+                        this.entitykey = entry[this.fk];
+                    }
+                    else if (String(this.entitykey) !== String(entry[this.fk]))
+                    {
+                        throw new DialectORM.Exception('DialectORMEAV different EntityKey in data from the same entity');
+                    }
+                }
+            }
+        }
+        return this;
+    }
+
+    entity(entitykey = null)
+    {
+        if (entitykey instanceof DialectORM) entitykey = entitykey.primaryKey();
+        this.entitykey = entitykey;
+        return this;
+    }
+
+    clear()
+    {
+        this.data = {};
+        this.isDirty = {};
+        return this;
+    }
+
+    async get(key, default_ = null)
+    {
+        var res = false;
+        if (!has(this.data,key))
+        {
+            // lazy load
+            await this.load([key]);
+            if (!has(this.data,key)) this.data[key] = false;
+        }
+        res = this.data[key];
+        return false === res ? default_ : res;
+    }
+
+    set(key, val)
+    {
+        if (has(this.data,key))
+        {
+            var prev = this.data[key][this.val];
+            if (prev !== val)
+            {
+                this.data[key][this.val] = val;
+                this.isDirty[key] = true;
+            }
+        }
+        else
+        {
+            this.data[key] = {};
+            this.data[key][this.val] = val;
+            this.isDirty[key] = true;
+        }
+        return this;
+    }
+
+    async load(keys = null)
+    {
+        if (!DialectORM.emptykey(this.entitykey))
+        {
+            var conditions = {};
+            conditions[this.fk] = this.entitykey;
+            if (!empty(keys)) conditions[this.key] = {'in':array(keys)};
+            // load efficiently
+            this.populate(await DialectORM.DBHandler().get(
+                DialectORM.SQLBuilder().clear()
+                .Select('*')
+                .From(DialectORM.tbl(this.tbl))
+                .Where(conditions)
+                .sql()
+            ));
+        }
+        return this;
+    }
+
+    async save(keys = null)
+    {
+        var res = 0, pk, fk, key, val, fields, entitykey,
+            ids, update, insert, k, d, id, v, upd, conditions, r;
+        if (!empty(this.isDirty))
+        {
+            pk = this.pk;
+            fk = this.fk;
+            key = this.key;
+            val = this.val;
+            fields = [pk, fk, key, val];
+            entitykey = DialectORM.emptykey(this.entitykey) ? null : this.entitykey;
+            keys = empty(keys) ? Object.keys(this.isDirty) : array(keys);
+            ids = [];
+            update = [];
+            insert = [];
+            for (var i=0,kl=keys.length; i<kl; ++i)
+            {
+                k = keys[i];
+                if ((null == this.data[k]) || !this.data[k] || empty(this.isDirty[k])) continue;
+                d = this.data[k];
+                id = null != d[pk] ? d[pk] : null;
+                if ((null != id) && !DialectORM.emptykey(id))
+                {
+                    v = d[val];
+                    upd = {};
+                    upd[v] = {};
+                    upd[v][pk] = id;
+                    update.push(upd);
+                    ids.push(id);
+                    delete this.isDirty[k];
+                }
+                else if (!empty(entitykey))
+                {
+                    insert.push(fields.map(function(f) {return f===fk ? entitykey : ((null != d[f]) ? d[f] : null);}));
+                    delete this.isDirty[k];
+                }
+            }
+            if (update.length)
+            {
+                // update efficiently
+                upd = {};
+                upd[val] = {'case':update};
+                conditions = {};
+                conditions[pk] = {'in':ids};
+                r = await DialectORM.DBHandler().query(
+                    DialectORM.SQLBuilder().clear()
+                    .Update(DialectORM.tbl(this.tbl))
+                    .Set(upd)
+                    .Where(conditions)
+                    .sql()
+                );
+                res += r['affectedRows'];
+            }
+            if (insert.length)
+            {
+                // insert efficiently
+                r = await DialectORM.DBHandler().query(
+                    DialectORM.SQLBuilder().clear()
+                    .Insert(DialectORM.tbl(this.tbl), fields)
+                    .Values(insert)
+                    .sql()
+                );
+                res += r['affectedRows'];
+                conditions = {};
+                conditions[fk] = entitykey;
+                conditions[key] = {'in':insert.map(function(ins) {return ins[2/*key*/];})};
+                r = await DialectORM.DBHandler().get(
+                    DialectORM.SQLBuilder().clear()
+                    .Select([pk, key])
+                    .From(DialectORM.tbl(this.tbl))
+                    .Where(conditions)
+                    .sql()
+                );
+                for (var i=0,rl=r.length; i<rl; ++i)
+                {
+                    this.data[r[i][key]][pk] = r[i][pk];
+                }
+            }
+        }
+        return res;
+    }
+
+    async del(keys = null)
+    {
+        var res = 0, pk, ids, k, d, id, conditions, r;
+        if (!empty(this.data))
+        {
+            pk = this.pk;
+            keys = empty(keys) ? Object.keys(this.data) : array(keys);
+            ids = [];
+            for (var i=0,kl=keys.length; i<kl; ++i)
+            {
+                k = keys[i];
+                if ((null == this.data[k]) || !this.data[k]) continue;
+                d = this.data[k];
+                id = null != d[pk] ? d[pk] : null;
+                if ((null != id) && !DialectORM.emptykey(id)) ids.push(id);
+                delete this.data[k];
+                delete this.isDirty[k];
+            }
+            if (ids.length)
+            {
+                // delete efficiently
+                conditions = {};
+                conditions[pk] = {'in':ids};
+                r = await DialectORM.DBHandler().query(
+                    DialectORM.SQLBuilder()
+                        .clear()
+                        .Delete()
+                        .From(DialectORM.tbl(this.tbl))
+                        .Where(conditions)
+                        .sql()
+                );
+                res = r['affectedRows'];
+            }
+        }
+        return res;
     }
 }
 
@@ -1705,11 +1831,12 @@ class DialectORM extends DialectORMEntity
     }
 }
 
-DialectORM.VERSION = '2.0.1';
+DialectORM.VERSION = '2.1.0';
 
 DialectORM.Entity = DialectORMEntity;
 DialectORM.Exception = DialectORMException;
 DialectORM.Relation = DialectORMRelation;
+DialectORM.EAV = DialectORMEAV;
 DialectORM.IDb = IDialectORMDb;
 
 // private static
@@ -2062,6 +2189,121 @@ DialectNoSql.NoSqlHandler = function(store = null) {
 };
 
 DialectORM.NoSql = DialectNoSql;
+
+// utils
+function esc_re(s)
+{
+    return s.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+}
+function ucfirst(s)
+{
+    return s.charAt(0).toUpperCase() + s.slice(1);
+}
+function lcfirst(s)
+{
+    return s.charAt(0).toLowerCase() + s.slice(1);
+}
+function is_string(arg)
+{
+    return Object.prototype.toString.call(arg) === '[object String]';
+}
+function is_array(arg)
+{
+    return Object.prototype.toString.call(arg) === '[object Array]';
+}
+function is_obj(arg)
+{
+    return Object.prototype.toString.call(arg) === '[object Object]';
+}
+function empty(arg)
+{
+    if (is_string(arg)) return ('0' === arg) || (0 === arg.length);
+    if (is_array(arg)) return (0 === arg.length);
+    if (is_obj(arg)) return (0 === Object.keys(arg).length);
+    return !arg;
+}
+function has(o, k)
+{
+    return is_array(o) ? (-1 !== o.indexOf(k)) : (Object.prototype.hasOwnProperty.call(o, k));
+}
+function merge(/*args*/)
+{
+    let o = arguments[0] || {}, n = arguments.length, i = 1, o2, k;
+    while (i<n)
+    {
+        o2 = arguments[i++];
+        for (k in o2)
+        {
+            if (has(o2, k))
+                o[k] = o2[k];
+        }
+    }
+    return o;
+}
+function eq(a, b)
+{
+    if (is_array(a) && is_array(b))
+    {
+        if (a.length === b.length)
+        {
+            for (let i = 0, n = a.length; i < n; ++i)
+                if (a[i] !== b[i]) return false;
+            return true;
+        }
+        return false;
+    }
+    return a === b;
+}
+function array(x)
+{
+    return is_array(x) ? x : [x];
+}
+function NotImplemented()
+{
+    throw new Error('DialectORM: Method Not Implemented Error!');
+}
+
+const magicMethodsProxy = {
+    get: function(target, prop, receiver)  {
+        const proxy = this;
+
+        // Does prop exists? Is it a method?
+        if ('function' === typeof(target[prop]))
+        {
+            // Wrap it around a function and return it
+            return function(...args) {
+                // in order to preserve the default arguments the method may have, we pass undefined
+                // instead of an empty arguments object
+                var value = target[prop].apply(target, (args.length ? args : undefined));
+                // it is important to return the proxy instead of the target in order to make
+                // future calls to this method
+                return value === target ? proxy : value;
+            };
+        }
+
+        // Does prop exists?
+        if (undefined != target[prop])
+        {
+            return target[prop];
+        }
+
+        prop = String(prop);
+        // Falls to __call
+        if (
+            'function' === typeof(target.__call) &&
+            // only these magic methods
+            ('get' === prop.slice(0,3) || 'set' === prop.slice(0,3) || 'has' === prop.slice(0,3) || 'assoc' === prop.slice(0,5) || 'dissoc' === prop.slice(0,6))
+        )
+        {
+            return function(...args) {
+                var value = target.__call(prop, args, proxy);
+                // it is important to return the proxy instead of the target in order to make
+                // future calls to this method
+                return value === target ? proxy : value;
+            };
+        }
+    }
+};
 
 // export it
 return DialectORM;

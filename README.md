@@ -5,7 +5,7 @@ Tiny, fast, super-simple but versatile **Object-Relational-Mapper (ORM)** **with
 
 ![DialectORM](/dialectorm.jpg)
 
-version **2.0.1**
+version **2.1.0 in progress**
 
 
 **see also:**
