@@ -283,6 +283,7 @@ class DialectORMEAV
         this.val = val;
         this.data = {};
         this.isDirty = {};
+        this.entitykey = null;
     }
 
     populate(data)
@@ -293,7 +294,7 @@ class DialectORMEAV
             {
                 entry = data[i];
                 if (!entry || (null == entry[this.key])) continue;
-                var key = entry[this.key];
+                var key = String(entry[this.key]);
                 this.data[key] = entry;
                 if ((null == entry[this.pk]) || DialectORM.emptykey(entry[this.pk]))
                 {
@@ -332,11 +333,12 @@ class DialectORMEAV
     async get(key, default_ = null)
     {
         var res = false;
-        if (!has(this.data,key))
+        key = String(key);
+        if (null == this.data[key])
         {
             // lazy load
             await this.load([key]);
-            if (!has(this.data,key)) this.data[key] = false;
+            if (null == this.data[key]) this.data[key] = false;
         }
         res = this.data[key];
         return false === res ? default_ : res;
@@ -344,7 +346,8 @@ class DialectORMEAV
 
     set(key, val)
     {
-        if (has(this.data,key))
+        key = String(key);
+        if (null != this.data[key])
         {
             var prev = this.data[key][this.val];
             if (prev !== val)
@@ -399,7 +402,7 @@ class DialectORMEAV
             insert = [];
             for (var i=0,kl=keys.length; i<kl; ++i)
             {
-                k = keys[i];
+                k = String(keys[i]);
                 if ((null == this.data[k]) || !this.data[k] || empty(this.isDirty[k])) continue;
                 d = this.data[k];
                 id = null != d[pk] ? d[pk] : null;
@@ -474,7 +477,7 @@ class DialectORMEAV
             ids = [];
             for (var i=0,kl=keys.length; i<kl; ++i)
             {
-                k = keys[i];
+                k = String(keys[i]);
                 if ((null == this.data[k]) || !this.data[k]) continue;
                 d = this.data[k];
                 id = null != d[pk] ? d[pk] : null;

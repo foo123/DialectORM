@@ -271,6 +271,7 @@ class DialectORMEAV
         $this->val = $val;
         $this->data = array();
         $this->isDirty = array();
+        $this->entitykey = null;
     }
 
     public function populate($data)
@@ -281,8 +282,8 @@ class DialectORMEAV
             {
                 $entry = (array)$entry;
                 if (!isset($entry[$this->key])) continue;
-                $key = $entry[$this->key];
-                $this->data[$key]] = $entry;
+                $key = (string)$entry[$this->key];
+                $this->data[$key] = $entry;
                 if (!isset($entry[$this->pk]) || DialectORM::emptykey($entry[$this->pk]))
                 {
                     $this->isDirty[$key] = true;
@@ -320,6 +321,7 @@ class DialectORMEAV
     public function get($key, $default = null)
     {
         $res = false;
+        $key = (string)$key;
         if (!isset($this->data[$key]))
         {
             // lazy load
@@ -332,6 +334,7 @@ class DialectORMEAV
 
     public function set($key, $val)
     {
+        $key = (string)$key;
         if (isset($this->data[$key]))
         {
             $prev = $this->data[$key][$this->val];
@@ -386,6 +389,7 @@ class DialectORMEAV
             $insert = array();
             foreach ($keys as $k)
             {
+                $k = (string)$k;
                 if (!isset($this->data[$k]) || !$this->data[$k] || empty($this->isDirty[$k])) continue;
                 $d = $this->data[$k];
                 $id = isset($d[$pk]) ? $d[$pk] : null;
@@ -460,6 +464,7 @@ class DialectORMEAV
             $ids = array();
             foreach ($keys as $k)
             {
+                $k = (string)$k;
                 if (!isset($this->data[$k]) || !$this->data[$k]) continue;
                 $d = $this->data[$k];
                 $id = isset($d[$pk]) ? $d[$pk] : null;

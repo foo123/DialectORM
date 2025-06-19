@@ -18,7 +18,7 @@ def import_module(name, path):
     return mod
 
 # import the DialectORM.py (as a) module, probably you will want to place this in another dir/package
-DialectORM = import_module('DialectORM', os.path.join(DIR, '../../src/python/'))
+DialectORM = import_module('DialectORM', os.path.join(DIR, '../../src/py/'))
 if not DialectORM:
     print ('Could not load the DialectORM Module')
     sys.exit(1)

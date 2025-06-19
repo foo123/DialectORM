@@ -282,15 +282,15 @@ class DialectORMEAV:
                 d = self.data[k]
                 id = d[pk] if (pk in d) else None
                 if (id is not None) and not DialectORM.emptykey(id):
-                    v = d[val]
+                    v = str(d[val])
                     upd = {}
                     upd[v] = {}
                     upd[v][pk] = id
                     update.append(upd)
                     ids.append(id)
                     del self.isDirty[k]
-                elif !empty(entitykey):
-                    insert.append(map(lambda f: entitykey if f==fk else (d[f] if f in d else None), fields))
+                elif not empty(entitykey):
+                    insert.append(list(map(lambda f: entitykey if f==fk else (d[f] if f in d else None), fields)))
                     del self.isDirty[k]
 
             if len(update):
@@ -307,9 +307,9 @@ class DialectORMEAV:
                 res += r['affectedRows']
                 conditions = {}
                 conditions[fk] = entitykey
-                conditions[key] = {'in':map(lambda ins: ins[2], insert)} #key
+                conditions[key] = {'in':list(map(lambda ins: ins[2], insert))} #key
                 r = DialectORM.DBHandler().get(DialectORM.SQLBuilder().clear().Select([pk, key]).From(DialectORM.tbl(this.tbl)).Where(conditions).sql())
-                for _ in r: self.data[_[key]][pk] = _[pk]
+                for _ in r: self.data[str(_[key])][pk] = _[pk]
         return res
 
     def delete(self, keys = None):
@@ -404,7 +404,7 @@ class DialectORM(DialectORMEntity):
     def tbl(table):
         return DialectORM.prefix() + str(table)
 
-    eq = eq
+    eq = None
 
     @classmethod
     def fetchByPk(klass, id, default = None):
@@ -1725,5 +1725,7 @@ def eq(a, b):
 
 def array(x):
     return list(x) if isinstance(x, (list,tuple)) else [x]
+
+DialectORM.eq = eq
 
 __all__ = ['DialectORM']
