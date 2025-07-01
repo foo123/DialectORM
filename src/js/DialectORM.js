@@ -272,17 +272,19 @@ class DialectORMEAV
     val = null;
     data = null;
     isDirty = null;
+    isDeleted = null;
     entitykey = null;
 
     constructor(tbl, fk, pk, key, val)
     {
-        this.tbl = tbl;
-        this.fk = fk;
-        this.pk = pk;
-        this.key = key;
-        this.val = val;
+        this.tbl = String(tbl);
+        this.fk = String(is_array(fk) ? fk[0] : fk);
+        this.pk = String(is_array(pk) ? pk[0] : pk);
+        this.key = String(key);
+        this.val = String(val);
         this.data = {};
         this.isDirty = {};
+        this.isDeleted = {};
         this.entitykey = null;
     }
 
@@ -327,6 +329,7 @@ class DialectORMEAV
     {
         this.data = {};
         this.isDirty = {};
+        this.isDeleted = {};
         return this;
     }
 
@@ -347,20 +350,56 @@ class DialectORMEAV
     set(key, val)
     {
         key = String(key);
-        if (null != this.data[key])
+        if (null == val)
         {
-            var prev = this.data[key][this.val];
-            if (prev !== val)
+            // unset
+            if ((null != this.data[key]) && (this.data[key]))
             {
-                this.data[key][this.val] = val;
-                this.isDirty[key] = true;
+                var entry = this.data[key];
+                if ((null != entry[this.pk]) && (!DialectORM.emptykey(entry[this.pk])))
+                {
+                    this.isDeleted[key] = entry[this.pk];
+                }
+                delete this.data[key];
+                if (null != this.isDirty[key]) delete this.isDirty[key];
             }
         }
         else
         {
-            this.data[key] = {};
-            this.data[key][this.val] = val;
-            this.isDirty[key] = true;
+            // set
+            if (null != this.data[key])
+            {
+                if (!this.data[key])
+                {
+                    this.data[key] = {};
+                    this.data[key][this.key] = key;
+                }
+                if (null == this.data[key][this.val])
+                {
+                    this.data[key][this.val] = val;
+                    this.isDirty[key] = true;
+                }
+                else
+                {
+                    var prev = this.data[key][this.val];
+                    if (prev !== val)
+                    {
+                        this.data[key][this.val] = val;
+                        this.isDirty[key] = true;
+                    }
+                }
+            }
+            else
+            {
+                this.data[key] = {};
+                this.data[key][this.val] = val;
+                this.isDirty[key] = true;
+            }
+            if (null != this.isDeleted[key])
+            {
+                this.data[key][this.pk] = this.isDeleted[key];
+                delete this.isDeleted[key];
+            }
         }
         return this;
     }
@@ -371,7 +410,7 @@ class DialectORMEAV
         {
             var conditions = {};
             conditions[this.fk] = this.entitykey;
-            if (!empty(keys)) conditions[this.key] = {'in':array(keys)};
+            if (null != keys) conditions[this.key] = {'in':array(keys)};
             // load efficiently
             this.populate(await DialectORM.DBHandler().get(
                 DialectORM.SQLBuilder().clear()
@@ -384,83 +423,86 @@ class DialectORMEAV
         return this;
     }
 
-    async save(keys = null)
+    async update(keys = null)
     {
         var res = 0, pk, fk, key, val, fields, entitykey,
             ids, update, insert, k, d, id, v, upd, conditions, r;
         if (!empty(this.isDirty))
         {
-            pk = this.pk;
-            fk = this.fk;
-            key = this.key;
-            val = this.val;
-            fields = [pk, fk, key, val];
-            entitykey = DialectORM.emptykey(this.entitykey) ? null : this.entitykey;
-            keys = empty(keys) ? Object.keys(this.isDirty) : array(keys);
-            ids = [];
-            update = [];
-            insert = [];
-            for (var i=0,kl=keys.length; i<kl; ++i)
+            keys = null == keys ? Object.keys(this.isDirty) : array(keys);
+            if (keys.length)
             {
-                k = String(keys[i]);
-                if ((null == this.data[k]) || !this.data[k] || empty(this.isDirty[k])) continue;
-                d = this.data[k];
-                id = null != d[pk] ? d[pk] : null;
-                if ((null != id) && !DialectORM.emptykey(id))
+                pk = this.pk;
+                fk = this.fk;
+                key = this.key;
+                val = this.val;
+                fields = [pk, fk, key, val];
+                entitykey = DialectORM.emptykey(this.entitykey) ? null : this.entitykey;
+                ids = [];
+                update = [];
+                insert = [];
+                for (var i=0,kl=keys.length; i<kl; ++i)
                 {
-                    v = d[val];
+                    k = String(keys[i]);
+                    if ((null == this.data[k]) || !this.data[k] || empty(this.isDirty[k])) continue;
+                    d = this.data[k];
+                    id = null != d[pk] ? d[pk] : null;
+                    if ((null != id) && !DialectORM.emptykey(id))
+                    {
+                        v = d[val];
+                        upd = {};
+                        upd[v] = {};
+                        upd[v][pk] = id;
+                        update.push(upd);
+                        ids.push(id);
+                        delete this.isDirty[k];
+                    }
+                    else if (!empty(entitykey))
+                    {
+                        insert.push(fields.map(function(f) {return f===fk ? entitykey : ((null != d[f]) ? d[f] : null);}));
+                        delete this.isDirty[k];
+                    }
+                }
+                if (update.length)
+                {
+                    // update efficiently
                     upd = {};
-                    upd[v] = {};
-                    upd[v][pk] = id;
-                    update.push(upd);
-                    ids.push(id);
-                    delete this.isDirty[k];
+                    upd[val] = {'case':update};
+                    conditions = {};
+                    conditions[pk] = {'in':ids};
+                    r = await DialectORM.DBHandler().query(
+                        DialectORM.SQLBuilder().clear()
+                        .Update(DialectORM.tbl(this.tbl))
+                        .Set(upd)
+                        .Where(conditions)
+                        .sql()
+                    );
+                    res += r['affectedRows'];
                 }
-                else if (!empty(entitykey))
+                if (insert.length)
                 {
-                    insert.push(fields.map(function(f) {return f===fk ? entitykey : ((null != d[f]) ? d[f] : null);}));
-                    delete this.isDirty[k];
-                }
-            }
-            if (update.length)
-            {
-                // update efficiently
-                upd = {};
-                upd[val] = {'case':update};
-                conditions = {};
-                conditions[pk] = {'in':ids};
-                r = await DialectORM.DBHandler().query(
-                    DialectORM.SQLBuilder().clear()
-                    .Update(DialectORM.tbl(this.tbl))
-                    .Set(upd)
-                    .Where(conditions)
-                    .sql()
-                );
-                res += r['affectedRows'];
-            }
-            if (insert.length)
-            {
-                // insert efficiently
-                r = await DialectORM.DBHandler().query(
-                    DialectORM.SQLBuilder().clear()
-                    .Insert(DialectORM.tbl(this.tbl), fields)
-                    .Values(insert)
-                    .sql()
-                );
-                res += r['affectedRows'];
-                conditions = {};
-                conditions[fk] = entitykey;
-                conditions[key] = {'in':insert.map(function(ins) {return ins[2/*key*/];})};
-                r = await DialectORM.DBHandler().get(
-                    DialectORM.SQLBuilder().clear()
-                    .Select([pk, key])
-                    .From(DialectORM.tbl(this.tbl))
-                    .Where(conditions)
-                    .sql()
-                );
-                for (var i=0,rl=r.length; i<rl; ++i)
-                {
-                    this.data[r[i][key]][pk] = r[i][pk];
+                    // insert efficiently
+                    r = await DialectORM.DBHandler().query(
+                        DialectORM.SQLBuilder().clear()
+                        .Insert(DialectORM.tbl(this.tbl), fields)
+                        .Values(insert)
+                        .sql()
+                    );
+                    res += r['affectedRows'];
+                    conditions = {};
+                    conditions[fk] = entitykey;
+                    conditions[key] = {'in':insert.map(function(ins) {return ins[2/*key*/];})};
+                    r = await DialectORM.DBHandler().get(
+                        DialectORM.SQLBuilder().clear()
+                        .Select([pk, key])
+                        .From(DialectORM.tbl(this.tbl))
+                        .Where(conditions)
+                        .sql()
+                    );
+                    for (var i=0,rl=r.length; i<rl; ++i)
+                    {
+                        this.data[r[i][key]][pk] = r[i][pk];
+                    }
                 }
             }
         }
@@ -473,34 +515,53 @@ class DialectORMEAV
         if (!empty(this.data))
         {
             pk = this.pk;
-            keys = empty(keys) ? Object.keys(this.data) : array(keys);
-            ids = [];
-            for (var i=0,kl=keys.length; i<kl; ++i)
+            keys = null == keys ? Object.keys(this.data).concat(Object.keys(this.isDeleted) : array(keys);
+            if (keys.length)
             {
-                k = String(keys[i]);
-                if ((null == this.data[k]) || !this.data[k]) continue;
-                d = this.data[k];
-                id = null != d[pk] ? d[pk] : null;
-                if ((null != id) && !DialectORM.emptykey(id)) ids.push(id);
-                delete this.data[k];
-                delete this.isDirty[k];
-            }
-            if (ids.length)
-            {
-                // delete efficiently
-                conditions = {};
-                conditions[pk] = {'in':ids};
-                r = await DialectORM.DBHandler().query(
-                    DialectORM.SQLBuilder()
-                        .clear()
-                        .Delete()
-                        .From(DialectORM.tbl(this.tbl))
-                        .Where(conditions)
-                        .sql()
-                );
-                res = r['affectedRows'];
+                ids = [];
+                for (var i=0,kl=keys.length; i<kl; ++i)
+                {
+                    k = String(keys[i]);
+                    if (null != this.isDeleted[k])
+                    {
+                        ids.push(this.isDeleted[k]);
+                        delete this.isDeleted[k];
+                    }
+                    else
+                    {
+                        if ((null == this.data[k]) || !this.data[k]) continue;
+                        d = this.data[k];
+                        id = null != d[pk] ? d[pk] : null;
+                        if ((null != id) && !DialectORM.emptykey(id)) ids.push(id);
+                        delete this.data[k];
+                        if (null != this.isDirty[k]) delete this.isDirty[k];
+                    }
+                }
+                if (ids.length)
+                {
+                    // delete efficiently
+                    conditions = {};
+                    conditions[pk] = {'in':ids};
+                    r = await DialectORM.DBHandler().query(
+                        DialectORM.SQLBuilder()
+                            .clear()
+                            .Delete()
+                            .From(DialectORM.tbl(this.tbl))
+                            .Where(conditions)
+                            .sql()
+                    );
+                    res = r['affectedRows'];
+                }
             }
         }
+        return res;
+    }
+
+    async save()
+    {
+        var res = 0;
+        res += await this.del(Object.keys(this.isDeleted));
+        res += await this.update(Object.keys(this.isDirty));
         return res;
     }
 }

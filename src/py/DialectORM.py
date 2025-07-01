@@ -197,13 +197,14 @@ class DialectORMRelation:
 # https://en.wikipedia.org/wiki/Entity%E2%80%93attribute%E2%80%93value_model
 class DialectORMEAV:
     def __init__(self, tbl, fk, pk, key, val):
-        self.tbl = tbl
-        self.fk = fk
-        self.pk = pk
-        self.key = key
-        self.val = val
+        self.tbl = str(tbl)
+        self.fk = str(fk[0] if isinstance(fk, list) else fk)
+        self.pk = str(pk[0] if isinstance(pk, list) else pk)
+        self.key = str(key)
+        self.val = str(val)
         self.data = {}
         self.isDirty = {}
+        self.isDeleted = {}
         self.entitykey = None
 
     def populate(self, data):
@@ -229,6 +230,7 @@ class DialectORMEAV:
     def clear(self):
         self.data = {}
         self.isDirty = {}
+        self.isDeleted = {}
         return self
 
     def get(self, key, default = None):
@@ -243,96 +245,128 @@ class DialectORMEAV:
 
     def set(self, key, val):
         key = str(key)
-        if key in self.data:
-            prev = self.data[key][self.val]
-            if prev != val:
+        if val is None:
+            # unset
+            if (key in self.data) and (self.data[key]):
+                entry = self.data[key]
+                if (self.pk in entry) and (not DialectORM.emptykey(entry[self.pk])):
+                    self.isDeleted[key] = entry[self.pk]
+                del self.data[key]
+                if key in self.isDirty: del self.isDirty[key]
+        else:
+            # set
+            if key in self.data:
+                if not self.data[key]:
+                    self.data[key] = {}
+                    self.data[key][self.key] = key
+                if self.val not in self.data[key]:
+                    self.data[key][self.val] = val
+                    self.isDirty[key] = True
+                else:
+                    prev = self.data[key][self.val]
+                    if prev != val:
+                        self.data[key][self.val] = val
+                        self.isDirty[key] = True
+            else:
+                self.data[key] = {};
                 self.data[key][self.val] = val
                 self.isDirty[key] = True
-        else:
-            self.data[key] = {};
-            self.data[key][self.val] = val
-            self.isDirty[key] = True
+            if key in self.isDeleted:
+                self.data[key][self.pk] = self.isDeleted[key]
+                del self.isDeleted[key]
         return self
 
     def load(self, keys = None):
         if not DialectORM.emptykey(self.entitykey):
             conditions = {}
             conditions[self.fk] = self.entitykey
-            if not empty(keys): conditions[self.key] = {'in':array(keys)}
+            if keys is not None: conditions[self.key] = {'in':array(keys)}
             # load efficiently
             self.populate(DialectORM.DBHandler().get(DialectORM.SQLBuilder().clear().Select('*').From(DialectORM.tbl(this.tbl)).Where(conditions).sql()))
         return self
 
-    def save(self, keys = None):
+    def update(self, keys = None):
         res = 0
         if not empty(self.isDirty):
-            pk = self.pk
-            fk = self.fk
-            key = self.key
-            val = self.val
-            fields = [pk, fk, key, val]
-            entitykey = None if DialectORM.emptykey(self.entitykey) else self.entitykey
-            keys = self.data.keys() if empty(keys) else array(keys)
-            ids = []
-            update = []
-            insert = []
-            for k in keys:
-                k = str(k);
-                if (k not in self.data) or (not self.data[k]) or (k not in self.isDirty): continue
-                d = self.data[k]
-                id = d[pk] if (pk in d) else None
-                if (id is not None) and not DialectORM.emptykey(id):
-                    v = str(d[val])
-                    upd = {}
-                    upd[v] = {}
-                    upd[v][pk] = id
-                    update.append(upd)
-                    ids.append(id)
-                    del self.isDirty[k]
-                elif not empty(entitykey):
-                    insert.append(list(map(lambda f: entitykey if f==fk else (d[f] if f in d else None), fields)))
-                    del self.isDirty[k]
+            keys = self.data.keys() if keys is None else array(keys)
+            if len(keys):
+                pk = self.pk
+                fk = self.fk
+                key = self.key
+                val = self.val
+                fields = [pk, fk, key, val]
+                entitykey = None if DialectORM.emptykey(self.entitykey) else self.entitykey
+                ids = []
+                update = []
+                insert = []
+                for k in keys:
+                    k = str(k);
+                    if (k not in self.data) or (not self.data[k]) or (k not in self.isDirty): continue
+                    d = self.data[k]
+                    id = d[pk] if (pk in d) else None
+                    if (id is not None) and not DialectORM.emptykey(id):
+                        v = str(d[val])
+                        upd = {}
+                        upd[v] = {}
+                        upd[v][pk] = id
+                        update.append(upd)
+                        ids.append(id)
+                        del self.isDirty[k]
+                    elif not empty(entitykey):
+                        insert.append(list(map(lambda f: entitykey if f==fk else (d[f] if f in d else None), fields)))
+                        del self.isDirty[k]
 
-            if len(update):
-                # update efficiently
-                upd = {}
-                upd[val] = {'case':update}
-                conditions = {}
-                conditions[pk] = {'in':ids}
-                r = DialectORM.DBHandler().query(DialectORM.SQLBuilder().clear().Update(DialectORM.tbl(this.tbl)).Set(upd).Where(conditions).sql())
-                res += r['affectedRows']
-            if len(insert):
-                # insert efficiently
-                r = DialectORM.DBHandler().query(DialectORM.SQLBuilder().clear().Insert(DialectORM.tbl(this.tbl), fields).Values(insert).sql())
-                res += r['affectedRows']
-                conditions = {}
-                conditions[fk] = entitykey
-                conditions[key] = {'in':list(map(lambda ins: ins[2], insert))} #key
-                r = DialectORM.DBHandler().get(DialectORM.SQLBuilder().clear().Select([pk, key]).From(DialectORM.tbl(this.tbl)).Where(conditions).sql())
-                for _ in r: self.data[str(_[key])][pk] = _[pk]
+                if len(update):
+                    # update efficiently
+                    upd = {}
+                    upd[val] = {'case':update}
+                    conditions = {}
+                    conditions[pk] = {'in':ids}
+                    r = DialectORM.DBHandler().query(DialectORM.SQLBuilder().clear().Update(DialectORM.tbl(this.tbl)).Set(upd).Where(conditions).sql())
+                    res += r['affectedRows']
+                if len(insert):
+                    # insert efficiently
+                    r = DialectORM.DBHandler().query(DialectORM.SQLBuilder().clear().Insert(DialectORM.tbl(this.tbl), fields).Values(insert).sql())
+                    res += r['affectedRows']
+                    conditions = {}
+                    conditions[fk] = entitykey
+                    conditions[key] = {'in':list(map(lambda ins: ins[2], insert))} #key
+                    r = DialectORM.DBHandler().get(DialectORM.SQLBuilder().clear().Select([pk, key]).From(DialectORM.tbl(this.tbl)).Where(conditions).sql())
+                    for _ in r: self.data[str(_[key])][pk] = _[pk]
         return res
 
     def delete(self, keys = None):
         res = 0
         if not empty(self.data):
             pk = self.pk
-            keys = self.data.keys() if empty(keys) else array(keys)
-            ids = []
-            for k in keys:
-                k = str(k)
-                if (k not in self.data) or (not self.data[k]): continue
-                d = self.data[k]
-                id = d[pk] if (pk in d) else None
-                if (id is not None) and (not DialectORM.emptykey(id)): ids.append(id)
-                del self.data[k]
-                if k in self.isDirty: del self.isDirty[k]
+            keys = (self.data.keys()+self.isDeleted.keys()) if keys is None else array(keys)
+            if len(keys):
+                ids = []
+                for k in keys:
+                    k = str(k)
+                    if k in self.isDeleted:
+                        ids.append(self.isDeleted[k])
+                        del self.isDeleted[k]
+                    else:
+                        if (k not in self.data) or (not self.data[k]): continue
+                        d = self.data[k]
+                        id = d[pk] if (pk in d) else None
+                        if (id is not None) and (not DialectORM.emptykey(id)): ids.append(id)
+                        del self.data[k]
+                        if k in self.isDirty: del self.isDirty[k]
 
-            if len(ids):
-                # delete efficiently
-                conditions = {}
-                conditions[pk] = {'in':ids}
-                r = DialectORM.DBHandler().query(DialectORM.SQLBuilder().clear().Delete().From(DialectORM.tbl(this.tbl)).Where(conditions).sql())
-                res = r['affectedRows']
+                if len(ids):
+                    # delete efficiently
+                    conditions = {}
+                    conditions[pk] = {'in':ids}
+                    r = DialectORM.DBHandler().query(DialectORM.SQLBuilder().clear().Delete().From(DialectORM.tbl(this.tbl)).Where(conditions).sql())
+                    res = r['affectedRows']
+        return res
+
+    def save(self):
+        res = 0;
+        res += self.delete(self.isDeleted.keys())
+        res += self.update(self.isDirty.keys())
         return res
 
 
