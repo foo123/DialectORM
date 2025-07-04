@@ -309,7 +309,7 @@ class DialectORMEAV
     public function entity($entitykey = null)
     {
         if ($entitykey instanceof DialectORM) $entitykey = $entitykey->primaryKey();
-        $this->entitykey = $entitykey;
+        $this->entitykey = is_array($entitykey) ? $entitykey[0] : $entitykey;
         return $this;
     }
 
@@ -328,7 +328,7 @@ class DialectORMEAV
         if (!isset($this->data[$key]))
         {
             // lazy load
-            $this->load(array($key));
+            $this->load(empty($this->data) ? null : array($key)); // initially load all
             if (!isset($this->data[$key])) $this->data[$key] = false;
         }
         $res = $this->data[$key];
@@ -380,6 +380,7 @@ class DialectORMEAV
             else
             {
                 $this->data[$key] = array();
+                $this->data[$key][$this->key] = $key;
                 $this->data[$key][$this->val] = $val;
                 $this->isDirty[$key] = true;
             }
@@ -563,6 +564,7 @@ class DialectORM extends DialectORMEntity
 
     public static $table = null;
     public static $fields = array();
+    public static $extra_fields = null;
     public static $relationships = array();
 
     private $_db = null;
@@ -571,6 +573,7 @@ class DialectORM extends DialectORMEntity
     private $data = null;
     private $isDirty = null;
     private $relations = array();
+    private $eav = null;
 
     public static function dependencies($deps)
     {
@@ -634,6 +637,75 @@ class DialectORM extends DialectORMEntity
         return $a === $b;
     }
 
+    public static function conditions($conditions, $sql)
+    {
+        $table = static::$table;
+        $pk = static::$pk;
+        $fields = array_merge(static::$fields, array_keys(static::$relationships));
+        $extra_fields = static::$extra_fields;
+        $j = 0; $jc = 0; $jj = array();
+        $joinConditions = function($conditions) use (&$joinConditions, &$jj, &$j, &$jc, $table, $pk, $fields, $extra_fields, $sql) {
+            $conditions2 = array();
+            foreach ($conditions as $f => $cond)
+            {
+                if (isset($cond['or']))
+                {
+                    $cases = array();
+                    foreach ((array)$cond['or'] as $or_cl)
+                    {
+                        $cases[] = $joinConditions($or_cl);
+                    }
+                    $conditions2[$f] = array('or'=>$cases);
+                    continue;
+                }
+                if (isset($cond['and']))
+                {
+                    $cases = array();
+                    foreach ((array)$cond['and'] as $and_cl)
+                    {
+                        $cases[] = $joinConditions($and_cl);
+                    }
+                    $conditions2[$f] = array('and'=>$cases);
+                    continue;
+                }
+                $ref = DialectRef::parse($f, $sql);
+                $field = $ref->_col;
+                if (in_array($field, $fields))
+                {
+                    $conditions2[$f] = $cond;
+                    continue;
+                }
+                $eav_key = $extra_fields[3];
+                $eav_value = $extra_fields[4];
+                if (!isset($jj[$field]))
+                {
+                    $jj[$field] = ++$j;
+                    $main_table = DialectORM::tbl($table);
+                    $main_id = is_array($pk) ? $pk[0] : $pk;
+                    $join_table = DialectORM::tbl($extra_fields[0]);
+                    $join_id = is_array($extra_fields[1]) ? $extra_fields[1][0] : $extra_fields[1];
+                    $join_alias = $join_table.strval($jj[$field]);
+                    $sql->Join(
+                        "{$join_table} AS {$join_alias}",
+                        "{$main_table}.{$main_id}={$join_alias}.{$join_id}",
+                        "inner"
+                    );
+                }
+                else
+                {
+                    $join_alias = DialectORM::tbl($extra_fields[0]).$jj[$field];
+                }
+                $cases1 = array();
+                $cases1[$join_alias.'.'.$eav_key] = $field;
+                $cases2 = array();
+                $cases2[$join_alias.'.'.$eav_value] = $cond;
+                $conditions2[$join_alias.'_'.strval(++$jc)] = array('and'=>array($cases1,$cases2));
+            }
+            return $conditions2;
+        };
+        return empty($extra_fields) ? $conditions : $joinConditions($conditions);
+    }
+
     public static function fetchByPk($id, $default = null)
     {
         $entity = DialectORM::DBHandler()->get(
@@ -657,10 +729,9 @@ class DialectORM extends DialectORMEntity
             ->clear()
             ->Select('COUNT(*) AS cnt')
             ->From(DialectORM::tbl(static::$table))
-            ->Where($options['conditions'])
         ;
 
-        $res = DialectORM::DBHandler()->get($sql->sql());
+        $res = DialectORM::DBHandler()->get($sql->Where(static::conditions($options['conditions'], $sql))->sql());
         return $res[0]['cnt'];
     }
 
@@ -682,12 +753,13 @@ class DialectORM extends DialectORMEntity
             $default = null;
 
         $pk = static::$pk;
+        $table = DialectORM::tbl(static::$table);
         $sql = DialectORM::SQLBuilder()
             ->clear()
-            ->Select(static::$fields)
-            ->From(DialectORM::tbl(static::$table))
-            ->Where($options['conditions'])
+            ->Select(array_map(function($field) use ($table) {return $table.'.'.$field.' AS '.$field;}, static::$fields))
+            ->From($table)
         ;
+        $sql->Where(static::conditions($options['conditions'], $sql));
         if (!empty($options['order']))
         {
             foreach ($options['order'] as $field => $dir)
@@ -709,7 +781,20 @@ class DialectORM extends DialectORMEntity
 
         if (empty($entities)) return $default;
 
-        foreach ($entities as $i => $e) $entities[$i] = new static($e);
+        if (!empty(static::$extra_fields))
+        {
+            // eager optimised (no N+1 issue) loading of EAV extra fields
+            $ids = array_map(function($entry) use ($pk) {return $entry[is_array($pk) ? $pk[0] : $pk];}, $entities);
+            $fk = is_array(static::$extra_fields[1]) ? static::$extra_fields[1][0] : static::$extra_fields[1];
+            $conditions = array();
+            $conditions[$fk] = array('in'=>$ids);
+            $eav = DialectORM::DBHandler()->get($sql->clear()->Select('*')->From(DialectORM::tbl(static::$extra_fields[0]))->Where($conditions)->sql());
+            foreach ($entities as $i => $e) $entities[$i] = new static($e, array_filter($eav, function($entry) use ($fk,$ids,$i) {return strval($entry[$fk]) === strval($ids[$i]);}));
+        }
+        else
+        {
+            foreach ($entities as $i => $e) $entities[$i] = new static($e);
+        }
 
         if (!empty($options['withRelated']))
         {
@@ -961,6 +1046,19 @@ class DialectORM extends DialectORMEntity
         if (!empty($options['withRelated']))
         {
             $ids = static::pluck(static::fetchAll(array('conditions'=>$options['conditions'], 'limit'=>$options['limit'])));
+            if (!empty(static::$extra_fields))
+            {
+                $conditions = array();
+                $conditions[is_array(static::$extra_fields[1]) ? static::$extra_fields[1][0] : static::$extra_fields[1]] = array('in'=>$ids);
+                DialectORM::DBHandler()->query(
+                    DialectORM::SQLBuilder()
+                        ->clear()
+                        ->Delete()
+                        ->From(DialectORM::tbl(static::$extra_fields[0]))
+                        ->Where($conditions)
+                        ->sql()
+                );
+            }
             foreach (static::$relationships as $field => $rel)
             {
                 $type = strtolower($rel[0]); $class = $rel[1];
@@ -1040,8 +1138,8 @@ class DialectORM extends DialectORMEntity
                 ->clear()
                 ->Delete()
                 ->From(DialectORM::tbl(static::$table))
-                ->Where($options['conditions'])
             ;
+            $sql->Where(static::conditions($options['conditions'], $sql));
             if (!empty($options['limit']))
             {
                 if (is_array($options['limit']))
@@ -1055,11 +1153,21 @@ class DialectORM extends DialectORMEntity
         return $res;
     }
 
-    public function __construct($data = array())
+    public function __construct($data = array(), $extra = null)
     {
         $this->relations = array();
         if (is_array($data) && !empty($data))
+        {
             $this->_populate($data);
+        }
+        if (!empty(static::$extra_fields))
+        {
+            $this->eav = new DialectORMEAV(static::$extra_fields[0], static::$extra_fields[1], static::$extra_fields[2], static::$extra_fields[3], static::$extra_fields[4]);
+            if (is_array($extra) && !empty($extra))
+            {
+                $this->eav->populate($extra);
+            }
+        }
     }
 
     public function db()
@@ -1093,6 +1201,7 @@ class DialectORM extends DialectORMEntity
         if (!is_array($this->data) || !array_key_exists($field, $this->data))
         {
             if (in_array($field, static::$fields)) return $default;
+            if ($this->eav) return $this->eav->get($field, $default);
             throw new DialectORMException('Undefined Field: "'.$field.'" in ' . get_class($this) . ' via get()', 1);
         }
 
@@ -1240,7 +1349,31 @@ class DialectORM extends DialectORMEntity
 
         if (!in_array($field, static::$fields))
         {
-            throw new DialectORMException('Undefined Field: "'.$field.'" in ' . get_class($this) . ' via set()', 1);
+            if ($this->eav)
+            {
+                $tval = $val;
+                if (!$options['raw'])
+                {
+                    $fieldProp = DialectORM::camelCase($field, true);
+                    $typecast = 'type' . $fieldProp;
+                    if (method_exists($this, $typecast))
+                    {
+                        $tval = $this->{$typecast}($val);
+                    }
+                    $validate = 'validate' . $fieldProp;
+                    if (method_exists($this, $validate))
+                    {
+                        $valid = $this->{$validate}($tval);
+                        if (!$valid) throw new DialectORMException('Value: "'.$val.'" is not valid for Field: "'.$field.'" in '.get_class($this), 1);
+                    }
+                }
+                $this->eav->set($field, $tval);
+                return $this;
+            }
+            else
+            {
+                throw new DialectORMException('Undefined Field: "'.$field.'" in ' . get_class($this) . ' via set()', 1);
+            }
         }
 
         $tval = $val;
@@ -1385,7 +1518,7 @@ class DialectORM extends DialectORMEntity
 
     public function has($field)
     {
-        return !isset(static::$relationships[$field]) && (is_array($this->data) && array_key_exists($field, $this->data));
+        return !isset(static::$relationships[$field]) && ((is_array($this->data) && array_key_exists($field, $this->data)) || ($this->eav && array_key_exists($field, $this->eav->data)));
     }
 
     public function assoc($field, $entity)
@@ -1533,6 +1666,7 @@ class DialectORM extends DialectORMEntity
         $this->data = null;
         $this->isDirty = null;
         foreach ($this->relations as $rel) $rel->data = null;
+        if ($this->eav) $this->eav->clear();
         return $this;
     }
 
@@ -1609,6 +1743,15 @@ class DialectORM extends DialectORMEntity
         }
         if ($deep && !$diff)
         {
+            if ($this->eav)
+            {
+                $val_key = static::$extra_fields[4];
+                foreach ($this->eav->data as $field => $entry)
+                {
+                    //if ($diff && !isset($this->eav->isDirty[$field])) continue;
+                    $a[$field] = $entry[$val_key];
+                }
+            }
             array_push($stack, $class);
             foreach (array_keys(static::$relationships) as $field)
             {
@@ -1750,7 +1893,7 @@ class DialectORM extends DialectORMEntity
                         $conditions = DialectORM::key($rel->keya, $id, array());
                         if (is_array($rel->keyb))
                         {
-                            $conditions[DialetORM::strkey($rel->keyb)] = array('or'=>array_map(function($id) use ($rel) {
+                            $conditions[DialectORM::strkey($rel->keyb)] = array('or'=>array_map(function($id) use ($rel) {
                                 return DialectORM::key($rel->keyb, $id, array());
                             }, $eids));
                         }
@@ -1794,6 +1937,7 @@ class DialectORM extends DialectORMEntity
         }
 
         $this->sql()->clear();
+        if ($this->eav) $this->eav->entity($this)->save();
         return $res;
     }
 
@@ -1812,6 +1956,10 @@ class DialectORM extends DialectORMEntity
             if (!DialectORM::emptykey($id))
             {
                 // delete
+                /*if ($this->eav)
+                {
+                    $this->eav->entity($this)->delete();
+                }*/
                 $res = static::deleteAll(array(
                     'conditions' => DialectORM::key($pk, $id, array()),
                     'withRelated' => $options['withRelated']

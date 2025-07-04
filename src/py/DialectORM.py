@@ -198,8 +198,8 @@ class DialectORMRelation:
 class DialectORMEAV:
     def __init__(self, tbl, fk, pk, key, val):
         self.tbl = str(tbl)
-        self.fk = str(fk[0] if isinstance(fk, list) else fk)
-        self.pk = str(pk[0] if isinstance(pk, list) else pk)
+        self.fk = str(fk[0] if isinstance(fk, (list,tuple)) else fk)
+        self.pk = str(pk[0] if isinstance(pk, (list,tuple)) else pk)
         self.key = str(key)
         self.val = str(val)
         self.data = {}
@@ -224,7 +224,7 @@ class DialectORMEAV:
 
     def entity(self, entitykey = None):
         if isinstance(entitykey, DialectORM): entitykey = entitykey.primaryKey()
-        self.entitykey = entitykey
+        self.entitykey = entitykey[0] if isinstance(entitykey, (list,tuple)) else entitykey
         return self
 
     def clear(self):
@@ -238,7 +238,7 @@ class DialectORMEAV:
         key = str(key)
         if key not in self.data:
             # lazy load
-            self.load([key])
+            self.load(None if empty(self.data) else [key]) # initially load all
             if key not in self.data: self.data[key] = False
         res = self.data[key]
         return default if res is False else res
@@ -269,6 +269,7 @@ class DialectORMEAV:
                         self.isDirty[key] = True
             else:
                 self.data[key] = {};
+                self.data[key][self.key] = key
                 self.data[key][self.val] = val
                 self.isDirty[key] = True
             if key in self.isDeleted:
@@ -289,7 +290,7 @@ class DialectORMEAV:
         res = 0
         if not empty(self.isDirty):
             keys = self.data.keys() if keys is None else array(keys)
-            if len(keys):
+            if keys and len(keys):
                 pk = self.pk
                 fk = self.fk
                 key = self.key
@@ -340,7 +341,7 @@ class DialectORMEAV:
         if not empty(self.data):
             pk = self.pk
             keys = (self.data.keys()+self.isDeleted.keys()) if keys is None else array(keys)
-            if len(keys):
+            if keys and len(keys):
                 ids = []
                 for k in keys:
                     k = str(k)
@@ -391,6 +392,7 @@ class DialectORM(DialectORMEntity):
     table = None
     pk = None
     fields = []
+    extra_fields = None
     relationships = {}
 
     @staticmethod
@@ -441,6 +443,63 @@ class DialectORM(DialectORMEntity):
     eq = None
 
     @classmethod
+    def conditions(klass, conditions, sql):
+        global Dialect
+        table = klass.table
+        pk = klass.pk
+        fields = klass.fields + klass.relationships.keys()
+        extra_fields = klass.extra_fields
+        j = 0
+        jc = 0
+        jj = {}
+        def joinConditions(conditions):
+            conditions2 = {}
+            for f, cond in enumerate(conditions):
+                if 'or' in cond:
+                    cases = []
+                    for or_cl in cond['or']:
+                        cases.append(joinConditions(or_cl))
+                    conditions2[f] = {'or':cases}
+                    continue
+                if 'and' in cond:
+                    cases = []
+                    for and_cl in cond['and']:
+                        cases.push(joinConditions(and_cl))
+                    conditions2[f] = {'and':cases}
+                    continue
+                ref = Dialect.Ref.parse(f, sql)
+                field = ref._col
+                if field in fields:
+                    conditions2[f] = cond
+                    continue
+                eav_key = extra_fields[3]
+                eav_value = extra_fields[4]
+                join_alias = ''
+                if field not in jj:
+                    j += 1
+                    jj[field] = j
+                    main_table = DialectORM.tbl(table)
+                    main_id = pk[0] if isinstance(pk, (list,tuple)) else pk
+                    join_table = DialectORM.tbl(extra_fields[0])
+                    join_id = extra_fields[1][0] if isinstance(extra_fields[1], (list,tuple)) else  extra_fields[1]
+                    join_alias = join_table+str(jj[field])
+                    sql.Join(
+                        join_table+' AS '+join_alias,
+                        main_table+'.'+main_id+'='+join_alias+'.'+join_id,
+                        "inner"
+                    )
+                else:
+                    join_alias = DialectORM.tbl(extra_fields[0])+str(jj[field])
+                cases1 = {}
+                cases1[join_alias+'.'+eav_key] = field
+                cases2 = {}
+                cases2[join_alias+'.'+eav_value] = cond
+                jc += 1
+                conditions2[join_alias+'_'+str(jc)] = {'and':[cases1,cases2]}
+            return conditions2
+        return conditions if not extra_fields else joinConditions(conditions)
+
+    @classmethod
     def fetchByPk(klass, id, default = None):
         entity = DialectORM.DBHandler().get(
             DialectORM.SQLBuilder().clear().Select(
@@ -462,11 +521,9 @@ class DialectORM(DialectORMEntity):
             'COUNT(*) AS cnt'
             ).From(
                 DialectORM.tbl(klass.table)
-            ).Where(
-                options['conditions']
             )
 
-        res = DialectORM.DBHandler().get(sql.sql())
+        res = DialectORM.DBHandler().get(sql.Where(klass.conditions(options['conditions'], sql)).sql())
         return res[0]['cnt']
 
     @classmethod
@@ -490,10 +547,8 @@ class DialectORM(DialectORMEntity):
                 klass.fields
             ).From(
                 DialectORM.tbl(klass.table)
-            ).Where(
-                options['conditions']
             )
-
+        sql.Where(klass.conditions(options['conditions'], sql))
         if not empty(options['order']):
             for field in options['order']:
                 sql.Order(field, options['order'][field])
@@ -510,8 +565,18 @@ class DialectORM(DialectORMEntity):
 
         if empty(entities): return default
 
-        for i in range(len(entities)):
-            entities[i] = klass(entities[i])
+        if not empty(klass.extra_fields):
+            # eager optimised (no N+1 issue) loading of EAV extra fields
+            ids = list(map(lambda entry: entry[pk[0] if isinstance(pk[1], (list,tuple)) else pk], entities))
+            fk = klass.extra_fields[1][0] if isinstance(klass.extra_fields[1], (list,tuple)) else klass.extra_fields[1]
+            conditions = {}
+            conditions[fk] = {'in':ids}
+            eav = DialectORM.DBHandler().get(sql.clear().Select('*').From(DialectORM.tbl(klass.extra_fields[0])).Where(conditions).sql())
+            for i in range(len(entities)):
+                entities[i] = klass(entities[i], [entry for entry in eav if str(entry[fk]) == str(ids[i])])
+        else:
+            for i in range(len(entities)):
+                entities[i] = klass(entities[i])
 
         if options['withRelated']:
             # eager optimised (no N+1 issue) loading of selected relations
@@ -715,6 +780,12 @@ class DialectORM(DialectORMEntity):
         ids = None
         if not empty(options['withRelated']):
             ids = klass.pluck(klass.fetchAll({'conditions':options['conditions'], 'limit':options['limit']}))
+            if not empty(klass.extra_fields):
+                conditions = {}
+                conditions[klass.extra_fields[1][0] if isinstance(klass.extra_fields[1], (list,tuple)) else klass.extra_fields[1]] = {'in':ids}
+                DialectORM.DBHandler().query(
+                    DialectORM.SQLBuilder().clear().Delete().From(DialectORM.tbl(klass.extra_fields[0])).Where(conditions).sql()
+                )
             for field in klass.relationships:
                 rel = klass.relationships[field]
                 type = rel[0].lower()
@@ -765,9 +836,8 @@ class DialectORM(DialectORMEntity):
             sql = DialectORM.SQLBuilder().clear().Delete(
                 ).From(
                     DialectORM.tbl(klass.table)
-                ).Where(
-                    options['conditions']
                 )
+            sql.Where(klass.conditions(options['conditions'], sql))
             if options['limit'] is not None:
                 if isinstance(options['limit'], (list,tuple)):
                     sql.Limit(options['limit'][0], options['limit'][1] if 1<len(options['limit']) else 0)
@@ -777,14 +847,20 @@ class DialectORM(DialectORMEntity):
         res = res['affectedRows'];
         return res
 
-    def __init__(self, data = dict()):
+    def __init__(self, data = dict(), extra = None):
         self._db = None
         self._sql = None
         self.relations = {}
+        self.eav = None
         self.data = None
         self.isDirty = None
         if isinstance(data, dict) and not empty(data):
             self._populate(data)
+        klass = self.__class__
+        if not empty(klass.extra_fields):
+            self.eav = DialectORMEAV(klass.extra_fields[0], klass.extra_fields[1], klass.extra_fields[2], klass.extra_fields[3], klass.extra_fields[4])
+            if isinstance(extra, list) and len(extra):
+                self.eav.populate(extra)
 
     def db(self):
         if not self._db: self._db = DialectORM.DBHandler()
@@ -804,6 +880,7 @@ class DialectORM(DialectORMEntity):
             return self._getRelated(field, default, opts)
         if (not isinstance(self.data, dict)) or (field not in self.data):
             if field in klass.fields: return default
+            if self.eav: return self.eav.get(field, default)
             raise DialectORM.Exception('Undefined Field: "' + field + '" in ' + klass.__name__ + ' via get()')
 
         return self.data[field]
@@ -928,7 +1005,31 @@ class DialectORM(DialectORMEntity):
             return self._setRelated(field, val, options)
 
         if field not in klass.fields:
-            raise DialectORM.Exception('Undefined Field: "' + field + '" in ' + klass.__name__ + ' via set()')
+            if self.eav:
+                tval = val
+                if not options['raw']:
+                    fieldProp = DialectORM.camelCase(field, True)
+
+                    typecast = 'type' + fieldProp
+                    try:
+                        typecaster = getattr(self, typecast)
+                    except AttributeError:
+                        typecaster = None
+                    if callable(typecaster):
+                        tval = typecaster(val)
+
+                    validate = 'validate' + fieldProp
+                    try:
+                        validator = getattr(self, validate)
+                    except AttributeError:
+                        validator = None
+                    if callable(validator):
+                        valid = validator(tval)
+                        if not valid: raise DialectORM.Exception('Value: "' + str(val) + '" is not valid for Field: "' + field + '" in ' + klass.__name__)
+                self.eav.set(field, tval)
+                return self
+            else:
+                raise DialectORM.Exception('Undefined Field: "' + field + '" in ' + klass.__name__ + ' via set()')
 
         tval = val
         if not options['raw']:
@@ -1035,7 +1136,7 @@ class DialectORM(DialectORMEntity):
     def has(self, field):
         field = str(field)
         klass = self.__class__
-        return (field not in klass.relationships) and (isinstance(self.data, dict) and (field in self.data))
+        return (field not in klass.relationships) and ((isinstance(self.data, dict) and (field in self.data)) or (self.eav and (field in self.eav.data)))
 
     def assoc(self, field, entity):
         field = str(field)
@@ -1149,6 +1250,7 @@ class DialectORM(DialectORMEntity):
         self.data = None
         self.isDirty = None
         for rel in self.relations: self.relations[rel].data = None
+        if self.eav: self.eav.clear()
         return self
 
     # magic method calls simulated
@@ -1216,6 +1318,11 @@ class DialectORM(DialectORMEntity):
             if diff and (field not in self.isDirty): continue
             a[field] = self.get(field)
         if deep and not diff:
+            if self.eav:
+                val_key = klass.extra_fields[4]
+                for field in self.eav.data:
+                    #if diff and (field not in self.eav.isDirty): continue
+                    a[field] = self.eav.data[field][val_key]
             stack.append(klass)
             for field in klass.relationships:
                 if (field not in self.relations) or empty(self.relations[field].data): continue
@@ -1362,6 +1469,7 @@ class DialectORM(DialectORMEntity):
 
 
         self.sql().clear()
+        if self.eav: self.eav.entity(self).save()
         return res
 
     def delete(self, opts = dict()):
@@ -1378,6 +1486,8 @@ class DialectORM(DialectORMEntity):
             id = self.get(pk)
             if not DialectORM.emptykey(id):
                 # delete
+                #if self.eav:
+                #    self.eav.entity(self).delete()
                 res = klass.deleteAll({
                     'conditions' : DialectORM.key(pk, id, {}),
                     'withRelated' : options['withRelated']
