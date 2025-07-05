@@ -339,7 +339,7 @@ class DialectORMEAV
     _get(key, default_ = null)
     {
         key = String(key);
-        return null != this.data[key] ? this.data[key] : default_;
+        return this.data[key] ? this.data[key] : default_;
     }
 
     async get(key, default_ = null)
@@ -469,7 +469,7 @@ class DialectORMEAV
                     }
                     else if (!empty(entitykey))
                     {
-                        insert.push(fields.map(function(f) {return f===fk ? entitykey : ((null != d[f]) ? d[f] : null);}));
+                        insert.push(fields.map((f) => f===fk ? entitykey : ((null != d[f]) ? d[f] : null)));
                         delete this.isDirty[k];
                     }
                 }
@@ -501,7 +501,7 @@ class DialectORMEAV
                     res += r['affectedRows'];
                     conditions = {};
                     conditions[fk] = entitykey;
-                    conditions[key] = {'in':insert.map(function(ins) {return ins[2/*key*/];})};
+                    conditions[key] = {'in':insert.map((ins) => ins[2/*key*/])};
                     r = await DialectORM.DBHandler().get(
                         DialectORM.SQLBuilder().clear()
                         .Select([pk, key])
@@ -708,7 +708,7 @@ class DialectORM extends DialectORMEntity
 
         table = DialectORM.tbl(klass.table);
         sql = DialectORM.SQLBuilder().clear().Select(
-                klass.fields.map(function(field) {return table+'.'+field+' AS '+field;})
+                klass.fields.map((field) => table+'.'+field+' AS '+field)
             ).From(
                 table
             )
@@ -739,13 +739,13 @@ class DialectORM extends DialectORMEntity
         if (!empty(klass.extra_fields))
         {
             // eager optimised (no N+1 issue) loading of EAV extra fields
-            ids = entities.map(function(entry) {return entry[is_array(pk) ? pk[0] : pk];});
+            ids = entities.map((entry) => entry[is_array(pk) ? pk[0] : pk]);
             let fk = is_array(klass.extra_fields[1]) ? klass.extra_fields[1][0] : klass.extra_fields[1];
             conditions = {};
             conditions[fk] = {'in':ids};
             let eav = await DialectORM.DBHandler().get(sql.clear().Select('*').From(DialectORM.tbl(klass.extra_fields[0])).Where(conditions).sql());
             for (i = 0; i < entities.length; ++i)
-                entities[i] = new klass(entities[i], eav.filter(function(entry) {return String(entry[fk]) === String(ids[i]);}));
+                entities[i] = new klass(entities[i], eav.filter((entry) => String(entry[fk]) === String(ids[i])));
         }
         else
         {
@@ -1174,7 +1174,7 @@ class DialectORM extends DialectORMEntity
     {
         if (is_array(field))
         {
-            return field.map((f, i) => await this.get(f, is_array(default_) ? default_[i] : default_, options));
+            return await Promise.all(field.map(async (f, i) => await this.get(f, is_array(default_) ? default_[i] : default_, options)));
         }
 
         field = String(field);
@@ -1903,7 +1903,7 @@ class DialectORM extends DialectORMEntity
             cls = rel.b;
             if (has(['belongsto'], rel.type) && (entity instanceof cls))
             {
-                await entity.save();
+                await entity.save();//{'withRelated' : [f for f in cls.relationships if cls.relationships[f][1] != klass]}
                 this.set(rel.keyb, entity.primaryKey());
             }
         }
@@ -2232,7 +2232,7 @@ class DialectNoSql extends DialectORMEntity
     {
         if (is_array(field))
         {
-            return field.map((f, i) => await this.get(f, is_array(default_) ? default_[i] : default_, options));
+            return await Promise.all(field.map(async (f, i) => await this.get(f, is_array(default_) ? default_[i] : default_, options)));
         }
 
         field = String(field);

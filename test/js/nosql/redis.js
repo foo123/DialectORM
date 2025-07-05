@@ -1,13 +1,13 @@
 "use strict";
 
-module.exports = function( DialectNoSql ) {
+module.exports = function(DialectNoSql) {
 
 var redis = null;
 
 // requires redis node module
 // https://github.com/NodeRedis/node-redis
 try {
-    redis = require('redis');
+    redis = require('../venv/node_modules/redis');
 } catch(e) {
     redis = null;
 }

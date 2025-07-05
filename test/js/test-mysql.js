@@ -17,6 +17,7 @@ class Post extends DialectORM
     static table = 'posts';
     static pk = ['id'];
     static fields = ['id', 'content'];
+    static extra_fields = ['postmeta', 'post_id', 'id', 'key', 'value'];
     static relationships = {};
 
     typeId(x)
@@ -34,9 +35,9 @@ class Post extends DialectORM
         return 0 < x.length;
     }
 }
-class PostMeta extends DialectORM
+class PostStatus extends DialectORM
 {
-    static table = 'postmeta';
+    static table = 'poststatus';
     static pk = ['id'];
     static fields = ['id', 'status', 'type', 'post_id'];
     static relationships = {};
@@ -121,11 +122,11 @@ class User extends DialectORM
     }
 }
 Post.relationships = {
-    'meta' : ['hasOne', PostMeta, ['post_id']],
+    'status' : ['hasOne', PostStatus, ['post_id']],
     'comments' : ['hasMany', Comment, ['post_id']],
     'authors' : ['belongsToMany', User, ['user_id'], ['post_id'], 'user_post']
 };
-PostMeta.relationships = {
+PostStatus.relationships = {
     'post' : ['belongsTo', Post, ['post_id']]
 };
 Comment.relationships = {
@@ -154,24 +155,26 @@ async function test()
     output('Posts: ' + String(await Post.count()));
     output('Users: ' + String(await User.count()));
 
-    /*let post = new Post({'content':'yet another js post..'});
-    post.setComments([new Comment({'content':'yet still another js comment..'})]);
-    post.setComments([new Comment({'content':'yet one more js comment..'})], {'merge':true});
-    post.setAuthors([new User({'name':'yet another js user'}), await User.fetchByPk(5)]);
-    post.setMeta(new PostMeta({'status':'approved','type':'article'}));
-    await post.save({'withRelated':true});*/
-
-    /*let post2 = new Post({'content':'js post to delete..'});
-    await post2.save();*/
+    let post = await Post.fetchAll({'conditions' : {'content' : 'a js post..'},'single' : true});
+    if (!post)
+    {
+        post = new Post({'content':'a js post..'});
+        post.setCustomField2('custom value 2');
+        post.setComments([new Comment({'content':'a js comment..'})]);
+        post.setComments([new Comment({'content':'one more js comment..'})], {'merge':true});
+        post.setAuthors([new User({'name':'a js user'})]);
+        post.setStatus(new PostStatus({'status':'approved','type':'article'}));
+        await post.save({'withRelated':true});
+    }
+    output(post);
 
     print('Posts:');
-    output(await Post.fetchAll({'withRelated' : ['meta', 'comments', 'authors']}));
-
-    //await post2.del();
+    output(await Post.fetchAll({'withRelated' : ['status', 'comments', 'authors']}));
 
     print('Posts:');
     output(await Post.fetchAll({
-        'withRelated' : ['meta', 'comments', 'authors'],
+        'conditions' : {'custom_field2' : 'custom value 2'},
+        'withRelated' : ['status', 'comments', 'authors'],
         'related' : {
             'authors' : {'conditions':{'clause':{'or':[
                 {'name':{'like':'user'}},

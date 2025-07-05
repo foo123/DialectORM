@@ -1,13 +1,13 @@
 "use strict";
 
-module.exports = function( DialectORM ) {
+module.exports = function(DialectORM) {
 
 var mysql = null;
 
 // requires mysql2 node module
 // https://github.com/sidorares/node-mysql2
 try {
-    mysql = require('mysql2');
+    mysql = require('../venv/node_modules/mysql2');
 } catch(e) {
     mysql = null;
 }
@@ -30,7 +30,6 @@ class MysqlDb extends DialectORM.IDb
         if ( !mysql ) throw new Error('mysql2 module is not installed!');
         this.conf = conf || null;
         this.vendorName = String(vendor).trim();
-        if (this.conf) this.connect();
     }
 
     dispose()
@@ -41,7 +40,7 @@ class MysqlDb extends DialectORM.IDb
         return this;
     }
 
-    connect( )
+    connect()
     {
         if (!this.dbh && this.conf)
         {
@@ -69,7 +68,7 @@ class MysqlDb extends DialectORM.IDb
         return this.vendorName;
     }
 
-    escape(v)
+    /*escape(v)
     {
         return this.connect().dbh.escape(String(v));
     }
@@ -77,7 +76,7 @@ class MysqlDb extends DialectORM.IDb
     escapeWillQuote()
     {
         return true;
-    }
+    }*/
 
     query(sql)
     {
@@ -89,12 +88,12 @@ class MysqlDb extends DialectORM.IDb
                 self.num_rows = 0;
                 self.insert_id = '0';
                 self.last_result = [];
-                if ( err )
+                if (err)
                 {
                     reject(err);
                     return;
                 }
-                if ( SELECT_RE.test(sql) )
+                if (SELECT_RE.test(sql))
                 {
                     self.last_result = result;
                     self.num_rows = result.length;
@@ -102,7 +101,7 @@ class MysqlDb extends DialectORM.IDb
                 }
                 else
                 {
-                    resolve({'affectedRows' : self.num_rows = (result.affectedRows || 0), 'insertId' : self.insert_id = String(result.insertId || 0)});
+                    resolve({'affectedRows': self.num_rows = (result.affectedRows || 0), 'insertId': self.insert_id = String(result.insertId || 0)});
                 }
             });
         });

@@ -1,7 +1,7 @@
 def getDB(DialectORM):
+    #import asyncio
     import re
     import mysql.connector
-
     notSelectRE = re.compile(r'^(insert|delete|update|replace|drop|create|alter)\s+', re.I)
     insertReplaceRE = re.compile(r'^(insert|replace)\s+', re.I)
 
@@ -17,26 +17,22 @@ def getDB(DialectORM):
             self.insert_id = '0'
             self.conf = conf
             self.vendorName = str(vendor)
-            if conf: self.connect(conf)
 
         def __del__(self):
-            if self.dbh and hasattr(self, 'disconnect'):
-                self.disconnect()
+            if self.dbh and hasattr(self, 'disconnect'): self.disconnect()
             self.dbh = None
 
         def vendor(self):
             return self.vendorName
 
-        def escapeWillQuote(self):
-            return False
-
-        def escape(self, s):
-            if not self.dbh:
-                self.connect(self.conf)
-            cursor = self.dbh.cursor()
-            se = cursor._connection.converter.escape(str(s))
-            cursor.close()
-            return se
+        #def escapeWillQuote(self):
+        #    return False
+        #
+        #def escape(self, s):
+        #    cursor = self.dbh.cursor()
+        #    se = cursor._connection.converter.escape(str(s))
+        #    cursor.close()
+        #    return se
 
         def connect(self, cfg=dict()):
             # Must have a db and user
@@ -52,7 +48,7 @@ def getDB(DialectORM):
                 raise Exception('DB: No db or user')
 
             self.dbh = None
-            self.dbh = mysql.connector.connect(host=conf['host'],database=conf['db'],user=conf['user'],password=conf['password'])
+            self.dbh = mysql.connector.connect(host=conf['host'],database=conf['db'],user=conf['user'],password=conf['password'],use_pure=True)
 
             return self
 
@@ -64,6 +60,9 @@ def getDB(DialectORM):
             return self
 
         def query(self, sql):
+            # If there is no existing database connection then try to connect
+            if not self.dbh: self.connect(self.conf)
+
             sql = str(sql).strip()
 
             # initialise return
@@ -71,10 +70,6 @@ def getDB(DialectORM):
             self.num_rows = 0
             self.insert_id = '0'
             self.last_result = []
-
-            # If there is no existing database connection then try to connect
-            if not self.dbh:
-                self.connect(self.conf)
 
             # Query was an insert, delete, update, replace
             if notSelectRE.match(sql):
@@ -93,7 +88,7 @@ def getDB(DialectORM):
                 self.num_rows = cursor.rowcount
 
                 cursor.close()
-                return {'affectedRows' : self.num_rows, 'insertId' : self.insert_id}
+                return {'affectedRows': self.num_rows, 'insertId': self.insert_id}
 
             # Query was an select
             else:

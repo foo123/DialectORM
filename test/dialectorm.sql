@@ -42,6 +42,19 @@ CREATE TABLE `comments` (
 
 CREATE TABLE `postmeta` (
   `id` int(11) NOT NULL,
+  `post_id` int(11) NOT NULL,
+  `key` varchar(255) NOT NULL,
+  `value` text NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+-- --------------------------------------------------------
+
+--
+-- Δομή πίνακα για τον πίνακα `poststatus`
+--
+
+CREATE TABLE `poststatus` (
+  `id` int(11) NOT NULL,
   `status` enum('approved','published','suspended') CHARACTER SET latin1 COLLATE latin1_general_ci NOT NULL,
   `type` enum('article','tutorial','general') CHARACTER SET latin1 COLLATE latin1_general_ci NOT NULL,
   `post_id` int(11) NOT NULL
@@ -96,6 +109,13 @@ ALTER TABLE `comments`
 --
 ALTER TABLE `postmeta`
   ADD PRIMARY KEY (`id`),
+  ADD KEY `postmeta_post_id_foreign` (`post_id`);
+
+--
+-- Ευρετήρια για πίνακα `poststatus`
+--
+ALTER TABLE `poststatus`
+  ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `post_id` (`post_id`);
 
 --
@@ -134,6 +154,12 @@ ALTER TABLE `postmeta`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
+-- AUTO_INCREMENT για πίνακα `poststatus`
+--
+ALTER TABLE `poststatus`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
 -- AUTO_INCREMENT για πίνακα `posts`
 --
 ALTER TABLE `posts`
@@ -160,6 +186,12 @@ ALTER TABLE `comments`
 --
 ALTER TABLE `postmeta`
   ADD CONSTRAINT `postmeta_post_id_foreign_key` FOREIGN KEY (`post_id`) REFERENCES `posts` (`id`) ON DELETE CASCADE;
+
+--
+-- Περιορισμοί για πίνακα `poststatus`
+--
+ALTER TABLE `poststatus`
+  ADD CONSTRAINT `poststatus_post_id_foreign_key` FOREIGN KEY (`post_id`) REFERENCES `posts` (`id`) ON DELETE CASCADE;
 
 --
 -- Περιορισμοί για πίνακα `user_post`

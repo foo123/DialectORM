@@ -15,7 +15,6 @@ class PDODb implements IDialectORMDb
     {
         $this->conf = (array)$conf;
         $this->vendorName = (string)$vendor;
-        if ( !empty($conf) ) $this->connect($conf);
     }
 
     public function __destruct()
@@ -30,7 +29,7 @@ class PDODb implements IDialectORMDb
         return $this->vendorName;
     }
 
-    public function escapeWillQuote()
+    /*public function escapeWillQuote()
     {
         return true;
     }
@@ -41,9 +40,9 @@ class PDODb implements IDialectORMDb
             $this->connect($this->conf);
 
         $stre = $this->dbh ? $this->dbh->quote($str) : ('\''.addslashes(stripslashes($str)).'\'');
-        if ( false === $stre ) $stre = '\''.addslashes(stripslashes($str)).'\'';
+        if (false === $stre) $stre = '\''.addslashes(stripslashes($str)).'\'';
         return $stre;
-    }
+    }*/
 
     public function connect($conf=array())
     {
@@ -55,7 +54,7 @@ class PDODb implements IDialectORMDb
             'ssl' => array()
         ), (array)$conf);
 
-        if ( !$conf['dsn'] || !$conf['user'] )
+        if (!$conf['dsn'] || !$conf['user'])
             throw new Exception('DB: No dsn or user');
 
         $this->dbh = !empty($conf['ssl']) ? new PDO($conf['dsn'], $conf['user'], $conf['password'], $conf['ssl']) :  new PDO($conf['dsn'], $conf['user'], $conf['password']);
@@ -80,13 +79,13 @@ class PDODb implements IDialectORMDb
         $this->last_result = array();
 
         // If there is no existing database connection then try to connect
-        if ( !isset($this->dbh) || !$this->dbh )
+        if (!isset($this->dbh) || !$this->dbh)
         {
             $this->connect($this->conf);
         }
 
         // Query was an insert, delete, update, replace
-        if ( preg_match('/^(insert|delete|update|replace|drop|create|alter)\\s+/i', $sql) )
+        if (preg_match('/^(insert|delete|update|replace|drop|create|alter)\\s+/i', $sql))
         {
 
             // Perform the query and log number of affected rows
@@ -99,14 +98,14 @@ class PDODb implements IDialectORMDb
             }
 
             // If there is an error then take note of it..
-            if ( $this->catchError() ) return false;
+            if ($this->catchError()) return false;
 
             // Take note of the insert_id
-            if ( preg_match("/^(insert|replace)\s+/i", $sql) )
+            if (preg_match("/^(insert|replace)\s+/i", $sql))
             {
                 $this->insert_id = (string)@$this->dbh->lastInsertId();
             }
-            return array('affectedRows' => $this->num_rows, 'insertId' => $this->insert_id);
+            return array('affectedRows'=> $this->num_rows, 'insertId'=> $this->insert_id);
         }
         // Query was an select
         else
@@ -120,7 +119,7 @@ class PDODb implements IDialectORMDb
             }
 
             // If there is an error then take note of it..
-            if ( $this->catchError() ) return false;
+            if ($this->catchError()) return false;
 
             // Store Query Results
             $num_rows = 0; $this->last_result = array();
@@ -147,9 +146,9 @@ class PDODb implements IDialectORMDb
         $err_array = $this->dbh->errorInfo();
 
         // Note: Ignoring error - bind or column index out of range
-        if ( isset($err_array[1]) && $err_array[1] != 25)
+        if (isset($err_array[1]) && $err_array[1] != 25)
         {
-            if ( $throw )
+            if ($throw)
                 throw new Exception(implode(', ', $err_array).', Query: '.$this->last_query, 1);
             return true;
         }

@@ -2,7 +2,7 @@
 
 define('DIR', dirname(__FILE__));
 include(DIR . '/../../src/php/DialectORM.php');
-include(DIR . '/sql/pdo-mysql.php');
+include(DIR . '/sql/mysql.php');
 
 DialectORM::dependencies([
     'Dialect' => DIR . '/../../../Dialect/src/php/Dialect.php',
@@ -18,6 +18,7 @@ class Post extends DialectORM
     public static $table = 'posts';
     public static $pk = ['id'];
     public static $fields = ['id', 'content'];
+    public static $extra_fields = ['postmeta', 'post_id', 'id', 'key', 'value'];
     public static $relationships = [];
 
     public function typeId($x)
@@ -36,9 +37,9 @@ class Post extends DialectORM
     }
 }
 
-class PostMeta extends DialectORM
+class PostStatus extends DialectORM
 {
-    public static $table = 'postmeta';
+    public static $table = 'poststatus';
     public static $pk = ['id'];
     public static $fields = ['id', 'status', 'type', 'post_id'];
     public static $relationships = [];
@@ -142,11 +143,11 @@ function output($data)
 }
 
 Post::$relationships = [
-    'meta' => ['hasOne', 'PostMeta', ['post_id']],
+    'status' => ['hasOne', 'PostStatus', ['post_id']],
     'comments' => ['hasMany', 'Comment', ['post_id']],
     'authors' => ['belongsToMany', 'User', ['user_id'], ['post_id'], 'user_post'],
 ];
-PostMeta::$relationships = [
+PostStatus::$relationships = [
     'post' => ['belongsTo', 'Post', ['post_id']]
 ];
 Comment::$relationships = [
@@ -161,24 +162,26 @@ function test()
     output('Posts: ' . (string)Post::count());
     output('Users: ' . (string)User::count());
 
-    /*$post = new Post(['content'=>'yet another php post..']);
-    $post->setComments([new Comment(['content'=>'yet still another php comment..'])]);
-    $post->setComments([new Comment(['content'=>'yet one more php comment..'])], ['merge'=>true]);
-    $post->setAuthors([new User(['name'=>'yet another php user']), User::fetchByPk(3)]);
-    $post->setMeta(new PostMeta(['status'=>'approved','type'=>'article']));
-    $post->save(['withRelated'=>true]);*/
-
-    /*$post2 = new Post(['content'=>'php post to delete..']);
-    $post2->save();*/
+    $post = Post::fetchAll(['conditions' => ['content' => 'a php post..'],'single' => true]);
+    if (empty($post))
+    {
+        $post = new Post(['content'=>'a php post..']);
+        $post->setCustomField1('custom value 1');
+        $post->setComments([new Comment(['content'=>'a php comment..'])]);
+        $post->setComments([new Comment(['content'=>'one more php comment..'])], ['merge'=>true]);
+        $post->setAuthors([new User(['name'=>'a php user'])]);
+        $post->setStatus(new PostStatus(['status'=>'approved','type'=>'article']));
+        $post->save(['withRelated'=>true]);
+    }
+    output($post);
 
     print('Posts:');
-    output(Post::fetchAll(['withRelated' => ['meta', 'comments', 'authors']]));
-
-    //$post2->delete();
+    output(Post::fetchAll(['withRelated' => ['status', 'comments', 'authors']]));
 
     print('Posts:');
     output(Post::fetchAll([
-        'withRelated' => ['meta', 'comments', 'authors'],
+        'conditions' => ['custom_field1' => 'custom value 1'],
+        'withRelated' => ['status', 'comments', 'authors'],
         'related' => [
             'authors' => ['conditions'=>['clause'=>['or'=>[
                 ['name'=>['like'=>'user']],

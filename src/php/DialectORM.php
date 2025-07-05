@@ -327,7 +327,7 @@ class DialectORMEAV
     public function _get($key, $default = null)
     {
         $key = (string)$key;
-        return isset($this->data[$key]) ? $this->data[$key] : $default;
+        return !empty($this->data[$key]) ? $this->data[$key] : $default;
     }
 
     public function get($key, $default = null)
@@ -1798,7 +1798,7 @@ class DialectORM extends DialectORMEntity
                     $data = array();
                     foreach ($entity as $e)
                     {
-                        d = $e->toArray(true, false, $stack);
+                        $d = $e->toArray(true, false, $stack);
                         if (!empty($d)) $data[] = $d;
                     }
                 }
@@ -1833,7 +1833,7 @@ class DialectORM extends DialectORMEntity
             $rel = $this->relations[$field]; $entity = $rel->data; $class = $rel->b;
             if (in_array($rel->type, array('belongsto')) && ($entity instanceof $class))
             {
-                $entity->save();
+                $entity->save();//{'withRelated' : [f for f in cls.relationships if cls.relationships[f][1] != klass]}
                 $this->set($rel->keyb, $entity->primaryKey());
             }
         }

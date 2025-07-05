@@ -1,35 +1,45 @@
 #!/usr/bin/env python
-
+# venv\Scripts\activate, deactivate
 import os, sys
 import json
+#import asyncio
+#import warnings
+#warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 DIR = os.path.dirname(os.path.abspath(__file__))
 
 def import_module(name, path):
-    import imp
-    try:
-        mod_fp, mod_path, mod_desc  = imp.find_module(name, [path])
-        mod = getattr( imp.load_module(name, mod_fp, mod_path, mod_desc), name )
-    except ImportError as exc:
-        mod = None
-        sys.stderr.write("Error: failed to import module ({})".format(exc))
-    finally:
-        if mod_fp: mod_fp.close()
-    return mod
+    #import imp
+    #try:
+    #    mod_fp, mod_path, mod_desc  = imp.find_module(name, [path])
+    #    mod = getattr( imp.load_module(name, mod_fp, mod_path, mod_desc), name )
+    #except ImportError as exc:
+    #    mod = None
+    #    sys.stderr.write("Error: failed to import module ({})".format(exc))
+    #finally:
+    #    if mod_fp: mod_fp.close()
+    #return mod
+    import importlib.util, sys
+    spec = importlib.util.spec_from_file_location(name, path+name+'.py')
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return getattr(mod, name)
 
 # import the DialectORM.py (as a) module, probably you will want to place this in another dir/package
+Dialect = import_module('Dialect', os.path.join(DIR, '../../../Dialect/src/python/'))
 DialectORM = import_module('DialectORM', os.path.join(DIR, '../../src/py/'))
-if not DialectORM:
-    print ('Could not load the DialectORM Module')
+if not Dialect or not DialectORM:
+    print ('Could not load the Dialect/DialectORM Module(s)')
     sys.exit(1)
-else:
-    pass
-
 
 from sql.mysql import getDB
+if not getDB:
+    print ('Could not load the getDB')
+    sys.exit(1)
 
 DialectORM.dependencies({
-    'Dialect' : os.path.join(DIR, '../../../Dialect/src/python/') # provide actual class, i.e Dialect or directory of module, i.e DIR
+    'Dialect' : Dialect#os.path.join(DIR, '../../../Dialect/src/python/') # provide actual class, i.e Dialect or directory of module, i.e DIR
 })
 DialectORM.DBHandler(getDB(DialectORM)({
     'db' : 'dialectorm',
@@ -41,6 +51,7 @@ class Post(DialectORM):
     table = 'posts'
     pk = ['id']
     fields = ['id', 'content']
+    extra_fields = ['postmeta', 'post_id', 'id', 'key', 'value']
     relationships = {}
 
     def typeId(self, x):
@@ -52,8 +63,8 @@ class Post(DialectORM):
     def validateContent(self, x):
         return 0 < len(x)
 
-class PostMeta(DialectORM):
-    table = 'postmeta'
+class PostStatus(DialectORM):
+    table = 'poststatus'
     pk = ['id']
     fields = ['id', 'status', 'type', 'post_id']
     relationships = {}
@@ -109,12 +120,13 @@ class User(DialectORM):
     def validateName(self, x):
         return 0 < len(x)
 
+
 Post.relationships = {
-    'meta' : ['hasOne', PostMeta, ['post_id']],
+    'status' : ['hasOne', PostStatus, ['post_id']],
     'comments' : ['hasMany', Comment, ['post_id']],
     'authors' : ['belongsToMany', User, ['user_id'], ['post_id'], 'user_post']
 }
-PostMeta.relationships = {
+PostStatus.relationships = {
     'post' : ['belongsTo', Post, ['post_id']]
 }
 Comment.relationships = {
@@ -136,24 +148,24 @@ def test():
     output('Posts: ' + str(Post.count()))
     output('Users: ' + str(User.count()))
 
-    #post = Post({'content':'yet another py post..'})
-    #post.setComments([Comment({'content':'yet still another py comment..'})])
-    #post.setComments([Comment({'content':'yet one more py comment..'})], {'merge':True})
-    #post.setAuthors([User({'name':'yet another py user'}), User.fetchByPk(4)])
-    #post.setMeta(PostMeta({'status':'approved','type':'article'}))
-    #post.save({'withRelated':True})
-
-    #post2 = Post({'content':'py post to delete..'})
-    #post2.save()
+    post = Post.fetchAll({'conditions' : {'content' : 'a py post..'},'single' : True})
+    if not post:
+        post = Post({'content':'a py post..'})
+        post.setCustomField3('custom value 3')
+        post.setComments([Comment({'content':'a py comment..'})])
+        post.setComments([Comment({'content':'one more py comment..'})], {'merge':True})
+        post.setAuthors([User({'name':'a py user'})])
+        post.setStatus(PostStatus({'status':'approved','type':'article'}))
+        post.save({'withRelated':True})
+    output(post)
 
     print('Posts:')
-    output(Post.fetchAll({'withRelated' : ['meta', 'comments', 'authors']}))
-
-    #post2.delete()
+    output(Post.fetchAll({'withRelated' : ['status', 'comments', 'authors']}))
 
     print('Posts:')
     output(Post.fetchAll({
-        'withRelated' : ['meta', 'comments', 'authors'],
+        'conditions' : {'custom_field3' : 'custom value 3'},
+        'withRelated' : ['status', 'comments', 'authors'],
         'related' : {
             'authors' : {'conditions':{'clause':{'or':[
                 {'name':{'like':'user'}},
