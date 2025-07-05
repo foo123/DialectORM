@@ -65,7 +65,7 @@ abstract class DialectORMEntity
         else
         {
             return array_map(function($entity) use ($field) {
-                return $entity->get($field);
+                return $entity->_get($field);
             }, $entities);
         }
     }
@@ -165,7 +165,12 @@ abstract class DialectORMEntity
 
     public function primaryKey($default = 0)
     {
-        return $this->get(static::$pk, $default);
+        return $this->_get(static::$pk, $default);
+    }
+
+    public function _get($field, $default = null)
+    {
+        return $default;
     }
 
     public function get($field, $default = null, $options = array())
@@ -217,8 +222,6 @@ abstract class DialectORMEntity
 interface IDialectORMDb
 {
     public function vendor();
-    public function escape($str);
-    public function escapeWillQuote();
     public function query($sql);
     public function get($sql);
 }
@@ -319,6 +322,12 @@ class DialectORMEAV
         $this->isDirty = array();
         $this->isDeleted = array();
         return $this;
+    }
+
+    public function _get($key, $default = null)
+    {
+        $key = (string)$key;
+        return isset($this->data[$key]) ? $this->data[$key] : $default;
     }
 
     public function get($key, $default = null)
@@ -612,7 +621,10 @@ class DialectORM extends DialectORMEntity
         }
         $db = DialectORM::DBHandler();
         $sql = new $sqlBuilder($db->vendor());
-        $sql->escape(array($db, 'escape'), $db->escapeWillQuote());
+        if (method_exists($db, 'escape'))
+        {
+            $sql->escape(array($db, 'escape'), method_exists($db, 'escapeWillQuote') ? $db->escapeWillQuote() : false);
+        }
         if (method_exists($db, 'escapeId'))
         {
             $sql->escapeId(array($db, 'escapeId'), method_exists($db, 'escapeIdWillQuote') ? $db->escapeIdWillQuote() : false);
@@ -828,7 +840,7 @@ class DialectORM extends DialectORMEntity
                         $map = array();
                         foreach ($rentities as $re)
                         {
-                            $map[DialectORM::strkey($re->get($fk))] = $re;
+                            $map[DialectORM::strkey($re->_get($fk))] = $re;
                         }
                         foreach ($entities as $e)
                         {
@@ -891,7 +903,7 @@ class DialectORM extends DialectORMEntity
                         $map = array();
                         foreach ($rentities as $re)
                         {
-                            $fkv = DialectORM::strkey($re->get($fk));
+                            $fkv = DialectORM::strkey($re->_get($fk));
                             if (!isset($map[$fkv])) $map[$fkv] = array($re);
                             else $map[$fkv][] = $re;
                         }
@@ -927,7 +939,7 @@ class DialectORM extends DialectORMEntity
                         }
                         foreach ($entities as $e)
                         {
-                            $fkv = DialectORM::strkey($e->get($fk));
+                            $fkv = DialectORM::strkey($e->_get($fk));
                             $e->set($field, isset($map[$fkv]) ? $map[$fkv] : null, array('recurse'=>true,'merge'=>true));
                         }
                         break;
@@ -1208,6 +1220,27 @@ class DialectORM extends DialectORMEntity
         return $this->data[$field];
     }
 
+    public function _get($field, $default = null)
+    {
+        if (is_array($field))
+        {
+            $self = $this;
+            return array_map(function($i) use ($self, $field, $default) {
+                return $self->_get($field[$i], is_array($default) ? $default[$i] : $default);
+            }, array_keys($field));
+        }
+
+        $field = (string)$field;
+
+        if (!is_array($this->data) || !array_key_exists($field, $this->data))
+        {
+            if (in_array($field, static::$fields)) return $default;
+            throw new DialectORMException('Undefined Field: "'.$field.'" in ' . get_class($this) . ' via _get()', 1);
+        }
+
+        return $this->data[$field];
+    }
+
     private function _getRelated($field, $default = null, $options = array())
     {
         $rel = null;
@@ -1279,7 +1312,7 @@ class DialectORM extends DialectORMEntity
                         break;
                     case 'belongsto':
                         $class = $rel->b;
-                        $rel->data = $class::fetchByPk($this->get($rel->keyb), null);
+                        $rel->data = $class::fetchByPk($this->_get($rel->keyb), null);
                         if (!empty($rel->data) && ($mirrorRel = $this->_getMirrorRel($rel)))
                         {
                             $entity = $rel->data;
@@ -1739,7 +1772,7 @@ class DialectORM extends DialectORMEntity
         foreach (static::$fields as $field)
         {
             if ($diff && !isset($this->isDirty[$field])) continue;
-            $a[$field] = $this->get($field);
+            $a[$field] = $this->_get($field);
         }
         if ($deep && !$diff)
         {
@@ -1757,7 +1790,7 @@ class DialectORM extends DialectORMEntity
             {
                 if (!isset($this->relations[$field]) || empty($this->relations[$field]->data)) continue;
 
-                $entity = $this->get($field);
+                $entity = $this->relations[$field]->data;
                 $data = null;
 
                 if (is_array($entity))
@@ -1765,7 +1798,7 @@ class DialectORM extends DialectORMEntity
                     $data = array();
                     foreach ($entity as $e)
                     {
-                        $d = $e->toArray(true, false, $stack);
+                        d = $e->toArray(true, false, $stack);
                         if (!empty($d)) $data[] = $d;
                     }
                 }
@@ -1810,7 +1843,7 @@ class DialectORM extends DialectORMEntity
         {
             $this->beforeSave();
 
-            $id = $this->get($pk);
+            $id = $this->primaryKey();
             if (!DialectORM::emptykey($id) && !$options['force'])
             {
                 // update
@@ -1839,7 +1872,7 @@ class DialectORM extends DialectORMEntity
             $this->afterSave($res);
         }
 
-        $id = $this->get($pk);
+        $id = $this->primaryKey();
         if (!DialectORM::emptykey($id))
         {
             foreach ($withRelated as $field)
@@ -1952,7 +1985,7 @@ class DialectORM extends DialectORMEntity
         if (is_array($this->data))
         {
             $pk = static::$pk;
-            $id = $this->get($pk);
+            $id = $this->primaryKey();
             if (!DialectORM::emptykey($id))
             {
                 // delete
@@ -2190,7 +2223,7 @@ class DialectNoSql extends DialectORMEntity
         if (!empty($this->isDirty))
         {
             $pk = static::$pk;
-            $id = $this->get($pk);
+            $id = $this->primaryKey();
             if (DialectNoSql::emptykey($id))
             {
                 throw new DialectNoSqlException('Empty key in ' . get_class($this) . '::save()', 1);
@@ -2228,7 +2261,7 @@ class DialectNoSql extends DialectORMEntity
         if (is_array($this->data))
         {
             $pk = static::$pk;
-            $id = $this->get($pk);
+            $id = $this->primaryKey();
             if (!DialectNoSql::emptykey($id))
             {
                 // delete

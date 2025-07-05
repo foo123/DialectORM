@@ -6,7 +6,7 @@
 #   https://github.com/foo123/DialectORM
 ##
 
-import re, time, abc, inspect, functools
+import re, time, abc, inspect, functools, asyncio
 from collections import OrderedDict
 
 Dialect = None
@@ -51,7 +51,7 @@ class DialectORMEntity:
         if '' == field:
             return list(map(lambda entity: entity.primaryKey(), entities))
         else:
-            return list(map(lambda entity: entity.get(field), entities))
+            return list(map(lambda entity: entity._get(field), entities))
 
     @classmethod
     def sorter(klass, args = list()):
@@ -127,18 +127,21 @@ class DialectORMEntity:
             return functools.cmp_to_key(comparator)
 
     @classmethod
-    def fetchByPk(klass, id, default = None):
+    async def fetchByPk(klass, id, default = None):
         return default
 
     @classmethod
-    def fetchAll(klass, opts = dict(), default = list()):
+    async def fetchAll(klass, opts = dict(), default = list()):
         return default
 
     def primaryKey(self, default = 0):
         klass = self.__class__
-        return self.get(klass.pk, default)
+        return self._get(klass.pk, default)
 
-    def get(self, field, default = None, opts = dict()):
+    def _get(self, field, default = None):
+        return default
+
+    async def get(self, field, default = None, opts = dict()):
         return default
 
     def set(self, field, val = None, opts = dict()):
@@ -155,16 +158,16 @@ class DialectORMEntity:
     def toDict(self, diff = False):
         return {}
 
-    def beforeSave(self):
+    async def beforeSave(self):
         pass
 
-    def afterSave(self, result = 0):
+    async def afterSave(self, result = 0):
         pass
 
-    def save(self, opts = dict()):
+    async def save(self, opts = dict()):
         return 0
 
-    def delete(self, opts = dict()):
+    async def delete(self, opts = dict()):
         return 0
 
 # interface
@@ -172,13 +175,9 @@ class IDialectORMDb(abc.ABC):
     @abc.abstractmethod
     def vendor(self): raise NotImplementedError
     @abc.abstractmethod
-    def escape(self, str): raise NotImplementedError
+    async def query(self, sql): raise NotImplementedError
     @abc.abstractmethod
-    def escapeWillQuote(self): raise NotImplementedError
-    @abc.abstractmethod
-    def query(self, sql): raise NotImplementedError
-    @abc.abstractmethod
-    def get(self, sql): raise NotImplementedError
+    async def get(self, sql): raise NotImplementedError
 
 class DialectORMException(Exception):
     pass
@@ -233,12 +232,16 @@ class DialectORMEAV:
         self.isDeleted = {}
         return self
 
-    def get(self, key, default = None):
+    def _get(self, key, default = None):
+        key = str(key)
+        self.data[key] if key in self.data else default
+
+    async def get(self, key, default = None):
         res = False
         key = str(key)
         if key not in self.data:
             # lazy load
-            self.load(None if empty(self.data) else [key]) # initially load all
+            await self.load(None if empty(self.data) else [key]) # initially load all
             if key not in self.data: self.data[key] = False
         res = self.data[key]
         return default if res is False else res
@@ -277,16 +280,16 @@ class DialectORMEAV:
                 del self.isDeleted[key]
         return self
 
-    def load(self, keys = None):
+    async def load(self, keys = None):
         if not DialectORM.emptykey(self.entitykey):
             conditions = {}
             conditions[self.fk] = self.entitykey
             if keys is not None: conditions[self.key] = {'in':array(keys)}
             # load efficiently
-            self.populate(DialectORM.DBHandler().get(DialectORM.SQLBuilder().clear().Select('*').From(DialectORM.tbl(this.tbl)).Where(conditions).sql()))
+            self.populate(await DialectORM.DBHandler().get(DialectORM.SQLBuilder().clear().Select('*').From(DialectORM.tbl(this.tbl)).Where(conditions).sql()))
         return self
 
-    def update(self, keys = None):
+    async def update(self, keys = None):
         res = 0
         if not empty(self.isDirty):
             keys = self.data.keys() if keys is None else array(keys)
@@ -323,20 +326,20 @@ class DialectORMEAV:
                     upd[val] = {'case':update}
                     conditions = {}
                     conditions[pk] = {'in':ids}
-                    r = DialectORM.DBHandler().query(DialectORM.SQLBuilder().clear().Update(DialectORM.tbl(this.tbl)).Set(upd).Where(conditions).sql())
+                    r = await DialectORM.DBHandler().query(DialectORM.SQLBuilder().clear().Update(DialectORM.tbl(this.tbl)).Set(upd).Where(conditions).sql())
                     res += r['affectedRows']
                 if len(insert):
                     # insert efficiently
-                    r = DialectORM.DBHandler().query(DialectORM.SQLBuilder().clear().Insert(DialectORM.tbl(this.tbl), fields).Values(insert).sql())
+                    r = await DialectORM.DBHandler().query(DialectORM.SQLBuilder().clear().Insert(DialectORM.tbl(this.tbl), fields).Values(insert).sql())
                     res += r['affectedRows']
                     conditions = {}
                     conditions[fk] = entitykey
                     conditions[key] = {'in':list(map(lambda ins: ins[2], insert))} #key
-                    r = DialectORM.DBHandler().get(DialectORM.SQLBuilder().clear().Select([pk, key]).From(DialectORM.tbl(this.tbl)).Where(conditions).sql())
+                    r = await DialectORM.DBHandler().get(DialectORM.SQLBuilder().clear().Select([pk, key]).From(DialectORM.tbl(this.tbl)).Where(conditions).sql())
                     for _ in r: self.data[str(_[key])][pk] = _[pk]
         return res
 
-    def delete(self, keys = None):
+    async def delete(self, keys = None):
         res = 0
         if not empty(self.data):
             pk = self.pk
@@ -360,14 +363,14 @@ class DialectORMEAV:
                     # delete efficiently
                     conditions = {}
                     conditions[pk] = {'in':ids}
-                    r = DialectORM.DBHandler().query(DialectORM.SQLBuilder().clear().Delete().From(DialectORM.tbl(this.tbl)).Where(conditions).sql())
+                    r = await DialectORM.DBHandler().query(DialectORM.SQLBuilder().clear().Delete().From(DialectORM.tbl(this.tbl)).Where(conditions).sql())
                     res = r['affectedRows']
         return res
 
-    def save(self):
+    async def save(self):
         res = 0;
-        res += self.delete(self.isDeleted.keys())
-        res += self.update(self.isDirty.keys())
+        res += await self.delete(self.isDeleted.keys())
+        res += await self.update(self.isDirty.keys())
         return res
 
 
@@ -425,7 +428,8 @@ class DialectORM(DialectORMEntity):
                     Dialect = entry
         db = DialectORM.DBHandler()
         sql = Dialect(db.vendor())
-        sql.escape(db.escape, db.escapeWillQuote())
+        if hasattr(db, 'escape') and callable(getattr(db, 'escape')):
+            sql.escape(db.escape, db.escapeWillQuote() if hasattr(db, 'escapeWillQuote') and callable(getattr(db, 'escapeWillQuote')) else False)
         if hasattr(db, 'escapeId') and callable(getattr(db, 'escapeId')):
             sql.escapeId(db.escapeId, db.escapeIdWillQuote() if hasattr(db, 'escapeIdWillQuote') and callable(getattr(db, 'escapeIdWillQuote')) else False)
         return sql
@@ -447,7 +451,7 @@ class DialectORM(DialectORMEntity):
         global Dialect
         table = klass.table
         pk = klass.pk
-        fields = klass.fields + klass.relationships.keys()
+        fields = klass.fields + list(klass.relationships.keys())
         extra_fields = klass.extra_fields
         j = 0
         jc = 0
@@ -500,8 +504,8 @@ class DialectORM(DialectORMEntity):
         return conditions if not extra_fields else joinConditions(conditions)
 
     @classmethod
-    def fetchByPk(klass, id, default = None):
-        entity = DialectORM.DBHandler().get(
+    async def fetchByPk(klass, id, default = None):
+        entity = await DialectORM.DBHandler().get(
             DialectORM.SQLBuilder().clear().Select(
                     klass.fields
                 ).From(
@@ -513,7 +517,7 @@ class DialectORM(DialectORMEntity):
         return klass(entity[0] if isinstance(entity, list) else entity) if not empty(entity) else default
 
     @classmethod
-    def count(klass, opts = dict()):
+    async def count(klass, opts = dict()):
         options = {'conditions' : {}}
         options.update(opts)
 
@@ -523,11 +527,11 @@ class DialectORM(DialectORMEntity):
                 DialectORM.tbl(klass.table)
             )
 
-        res = DialectORM.DBHandler().get(sql.Where(klass.conditions(options['conditions'], sql)).sql())
+        res = await DialectORM.DBHandler().get(sql.Where(klass.conditions(options['conditions'], sql)).sql())
         return res[0]['cnt']
 
     @classmethod
-    def fetchAll(klass, opts = dict(), default = list()):
+    async def fetchAll(klass, opts = dict(), default = list()):
         options = {
             'conditions': {},
             'order': OrderedDict(),
@@ -561,7 +565,7 @@ class DialectORM(DialectORMEntity):
         elif retSingle:
             sql.Limit(1, 0)
 
-        entities = DialectORM.DBHandler().get(sql.sql())
+        entities = await DialectORM.DBHandler().get(sql.sql())
 
         if empty(entities): return default
 
@@ -571,7 +575,7 @@ class DialectORM(DialectORMEntity):
             fk = klass.extra_fields[1][0] if isinstance(klass.extra_fields[1], (list,tuple)) else klass.extra_fields[1]
             conditions = {}
             conditions[fk] = {'in':ids}
-            eav = DialectORM.DBHandler().get(sql.clear().Select('*').From(DialectORM.tbl(klass.extra_fields[0])).Where(conditions).sql())
+            eav = await DialectORM.DBHandler().get(sql.clear().Select('*').From(DialectORM.tbl(klass.extra_fields[0])).Where(conditions).sql())
             for i in range(len(entities)):
                 entities[i] = klass(entities[i], [entry for entry in eav if str(entry[fk]) == str(ids[i])])
         else:
@@ -598,12 +602,12 @@ class DialectORM(DialectORMEntity):
                         conditions2 = options['related'][field]['conditions'].copy()
                         conditions2.update(conditions)
                         conditions = conditions2
-                    rentities = cls.fetchAll({
+                    rentities = await cls.fetchAll({
                         'conditions' : conditions
                     })
                     mapp = {}
                     for re in rentities:
-                        mapp[DialectORM.strkey(re.get(fk))] = re
+                        mapp[DialectORM.strkey(re._get(fk))] = re
                     for e in entities:
                         kv = str(e.primaryKey())
                         e.set(field, mapp[kv] if kv in mapp else None)
@@ -638,7 +642,7 @@ class DialectORM(DialectORMEntity):
 
                             selects.append(subquery.sql())
 
-                        rentities = DialectORM.DBHandler().get(sql.clear().Union(selects, False).sql())
+                        rentities = await DialectORM.DBHandler().get(sql.clear().Union(selects, False).sql())
                         for i in range(len(rentities)):
                             rentities[i] = cls(rentities[i])
                     else:
@@ -651,7 +655,7 @@ class DialectORM(DialectORMEntity):
                             conditions2 = options['related'][field]['conditions'].copy()
                             conditions2.update(conditions)
                             conditions = conditions2
-                        rentities = cls.fetchAll({
+                        rentities = await cls.fetchAll({
                             'conditions' : conditions,
                             'order' : options['related'][field]['order'] if field in options['related'] and 'order' in options['related'][field] else OrderedDict()
                         })
@@ -677,14 +681,14 @@ class DialectORM(DialectORMEntity):
                         conditions2 = options['related'][field]['conditions'].copy()
                         conditions2.update(conditions)
                         conditions = conditions2
-                    rentities = cls.fetchAll({
+                    rentities = await cls.fetchAll({
                         'conditions' : conditions
                     })
                     mapp = {}
                     for re in rentities:
                         mapp[DialectORM.strkey(re.primaryKey())] = re
                     for e in entities:
-                        fkv = DialectORM.strkey(e.get(fk))
+                        fkv = DialectORM.strkey(e._get(fk))
                         e.set(field, mapp[fkv] if fkv in mapp else None, {'recurse':True,'merge':True})
 
                 elif 'belongstomany' == type:
@@ -696,7 +700,7 @@ class DialectORM(DialectORMEntity):
                         conditions[DialectORM.strkey(pk2)] = {'or':[DialectORM.key(pk2, id, {}) for id in ids]}
                     else:
                         conditions[pk2] = {'in':ids}
-                    reljoin = DialectORM.DBHandler().get(
+                    reljoin = await DialectORM.DBHandler().get(
                         DialectORM.SQLBuilder().clear().Select(
                             '*'
                         ).From(
@@ -734,7 +738,7 @@ class DialectORM(DialectORMEntity):
 
                             selects.append(subquery.sql())
 
-                        rentities = DialectORM.DBHandler().get(sql.clear().Union(selects, False).sql())
+                        rentities = await DialectORM.DBHandler().get(sql.clear().Union(selects, False).sql())
                         for i in range(len(rentities)):
                             rentities[i] = cls(rentities[i])
                     else:
@@ -747,7 +751,7 @@ class DialectORM(DialectORMEntity):
                             conditions2 = options['related'][field]['conditions'].copy()
                             conditions2.update(conditions)
                             conditions = conditions2
-                        rentities = cls.fetchAll({
+                        rentities = await cls.fetchAll({
                             'conditions' : conditions,
                             'order' : options['related'][field]['order'] if field in options['related'] and 'order' in options['related'][field] else OrderedDict()
                         })
@@ -769,7 +773,7 @@ class DialectORM(DialectORMEntity):
         return entities[0] if retSingle else entities
 
     @classmethod
-    def deleteAll(klass, opts = dict()):
+    async def deleteAll(klass, opts = dict()):
         options = {
             'conditions' : {},
             'limit' : None,
@@ -783,7 +787,7 @@ class DialectORM(DialectORMEntity):
             if not empty(klass.extra_fields):
                 conditions = {}
                 conditions[klass.extra_fields[1][0] if isinstance(klass.extra_fields[1], (list,tuple)) else klass.extra_fields[1]] = {'in':ids}
-                DialectORM.DBHandler().query(
+                await DialectORM.DBHandler().query(
                     DialectORM.SQLBuilder().clear().Delete().From(DialectORM.tbl(klass.extra_fields[0])).Where(conditions).sql()
                 )
             for field in klass.relationships:
@@ -801,7 +805,7 @@ class DialectORM(DialectORMEntity):
                         conditions[DialectORM.strkey(fk)] = {'or':[DialectORM.key(fk, id, {}) for id in ids]}
                     else:
                         conditions[fk] = {'in':ids}
-                    DialectORM.DBHandler().query(
+                    await DialectORM.DBHandler().query(
                         DialectORM.SQLBuilder().clear().Delete(
                             ).From(
                                 DialectORM.tbl(rel[4])
@@ -843,7 +847,7 @@ class DialectORM(DialectORMEntity):
                     sql.Limit(options['limit'][0], options['limit'][1] if 1<len(options['limit']) else 0)
                 else:
                     sql.Limit(options['limit'], 0)
-        res = DialectORM.DBHandler().query(sql.sql())
+        res = await DialectORM.DBHandler().query(sql.sql())
         res = res['affectedRows'];
         return res
 
@@ -870,22 +874,34 @@ class DialectORM(DialectORMEntity):
         if not self._sql: self._sql = DialectORM.SQLBuilder()
         return self._sql
 
-    def get(self, field, default = None, opts = dict()):
+    async def get(self, field, default = None, opts = dict()):
         if isinstance(field, (list,tuple)):
-            return [self.get(f, default[i] if isinstance(default, (list,tuple)) else default, opts) for i, f in enumerate(field)]
+            return [await self.get(f, default[i] if isinstance(default, (list,tuple)) else default, opts) for i, f in enumerate(field)]
 
         field = str(field)
         klass = self.__class__
         if field in klass.relationships:
-            return self._getRelated(field, default, opts)
+            return await self._getRelated(field, default, opts)
         if (not isinstance(self.data, dict)) or (field not in self.data):
             if field in klass.fields: return default
-            if self.eav: return self.eav.get(field, default)
+            if self.eav: return await self.eav.get(field, default)
             raise DialectORM.Exception('Undefined Field: "' + field + '" in ' + klass.__name__ + ' via get()')
 
         return self.data[field]
 
-    def _getRelated(self, field, default = None, opts = dict()):
+    def _get(self, field, default = None):
+        if isinstance(field, (list,tuple)):
+            return [self._get(f, default[i] if isinstance(default, (list,tuple)) else default) for i, f in enumerate(field)]
+
+        field = str(field)
+        klass = self.__class__
+        if (not isinstance(self.data, dict)) or (field not in self.data):
+            if field in klass.fields: return default
+            raise DialectORM.Exception('Undefined Field: "' + field + '" in ' + klass.__name__ + ' via get()')
+
+        return self.data[field]
+
+    async def _getRelated(self, field, default = None, opts = dict()):
         klass = self.__class__
         rel = None
         if isinstance(field, DialectORM.Relation):
@@ -921,12 +937,12 @@ class DialectORM(DialectORMEntity):
                     cls = rel.b
                     fk = rel.keyb
                     if 'hasone' == rel.type:
-                        rel.data = cls.fetchAll({
+                        rel.data = await cls.fetchAll({
                             'conditions' : DialectORM.key(fk, self.primaryKey(), {}),
                             'single' : True
                         })
                     else:
-                        rel.data = cls.fetchAll({
+                        rel.data = await cls.fetchAll({
                             'conditions' : DialectORM.key(fk, self.primaryKey(), options['conditions'].copy()),
                             'order' : options['order'],
                             'limit' : options['limit']
@@ -944,7 +960,7 @@ class DialectORM(DialectORMEntity):
                                 entity.set(mirrorRel['field'], self, {'recurse':False})
                 elif 'belongsto' == rel.type:
                     cls = rel.b
-                    rel.data = cls.fetchByPk(self.get(rel.keyb), None)
+                    rel.data = await cls.fetchByPk(self.get(rel.keyb), None)
                     if rel.data:
                         mirrorRel = self._getMirrorRel(rel)
                         if mirrorRel:
@@ -980,7 +996,7 @@ class DialectORM(DialectORMEntity):
                         else:
                             self.sql().Limit(options['limit'], 0)
 
-                    rel.data = list(map(lambda data: cls(data), self.db().get(str(self.sql()))))
+                    rel.data = list(map(lambda data: cls(data), await self.db().get(str(self.sql()))))
 
             return default if not rel.data else rel.data
 
@@ -1138,7 +1154,7 @@ class DialectORM(DialectORMEntity):
         klass = self.__class__
         return (field not in klass.relationships) and ((isinstance(self.data, dict) and (field in self.data)) or (self.eav and (field in self.eav.data)))
 
-    def assoc(self, field, entity):
+    async def assoc(self, field, entity):
         field = str(field)
         klass = self.__class__
         if field not in klass.relationships:
@@ -1162,7 +1178,7 @@ class DialectORM(DialectORMEntity):
                     conditions[DialectORM.strkey(rel[2])] = {'or':[DialectORM.key(rel[2], id, {}) for id in eids]}
                 else:
                     conditions[rel[2]] = {'in':eids}
-                exists = list(map(lambda v: DialectORM.strkey(list(map(lambda k: v[k], array(rel[2])))), [] if empty(eids) else self.db().get(
+                exists = list(map(lambda v: DialectORM.strkey(list(map(lambda k: v[k], array(rel[2])))), [] if empty(eids) else await self.db().get(
                     self.sql().clear().Select(
                         rel[2]
                     ).From(
@@ -1183,7 +1199,7 @@ class DialectORM(DialectORMEntity):
                         values.append(array(eid) + array(id))
 
                 if not empty(values):
-                    self.db().query(
+                    await self.db().query(
                         self.sql().clear().Insert(
                             jtbl, array(rel[2]) + array(rel[3])
                         ).Values(
@@ -1193,18 +1209,18 @@ class DialectORM(DialectORMEntity):
                 self.sql().clear()
             elif 'belongsto' == type:
                 if isinstance(entity, cls) and not DialectORM.emptykey(entity.primaryKey()):
-                    self.set(rel[2], entity.primaryKey()).save()
+                    await self.set(rel[2], entity.primaryKey()).save()
             elif 'hasone' == type:
                 if isinstance(entity, cls):
-                    entity.set(rel[2], id).save()
+                    await entity.set(rel[2], id).save()
             elif 'hasmany' == type:
                 for ent in entity:
                     if not isinstance(ent, cls): continue
-                    ent.set(rel[2], id).save()
+                    await ent.set(rel[2], id).save()
 
         return self
 
-    def dissoc(self, field, entity):
+    async def dissoc(self, field, entity):
         field = str(field)
         klass = self.__class__
         if field not in klass.relationships:
@@ -1228,7 +1244,7 @@ class DialectORM(DialectORMEntity):
                         conditions[DialectORM.strkey(rel[2])] = {'or':[DialectORM.key(rel[2], id, {}) for id in values]}
                     else:
                         conditions[rel[2]] = {'in':values}
-                    self.db().query(
+                    await self.db().query(
                         self.sql().clear().Delete(
                         ).From(
                             jtbl
@@ -1316,7 +1332,7 @@ class DialectORM(DialectORMEntity):
         a = {}
         for field in klass.fields:
             if diff and (field not in self.isDirty): continue
-            a[field] = self.get(field)
+            a[field] = self._get(field)
         if deep and not diff:
             if self.eav:
                 val_key = klass.extra_fields[4]
@@ -1327,7 +1343,7 @@ class DialectORM(DialectORMEntity):
             for field in klass.relationships:
                 if (field not in self.relations) or empty(self.relations[field].data): continue
 
-                entity = self.get(field)
+                entity = self.relations[field].data
                 data = None
 
                 if isinstance(entity, list):
@@ -1342,7 +1358,7 @@ class DialectORM(DialectORMEntity):
             stack.pop()
         return a
 
-    def save(self, opts = dict()):
+    async def save(self, opts = dict()):
         options = {
             'force' : False,
             'withRelated' : False
@@ -1364,14 +1380,14 @@ class DialectORM(DialectORMEntity):
             entity = rel.data
             cls = rel.b
             if (rel.type in ['belongsto']) and isinstance(entity, cls):
-                entity.save()
+                await entity.save()
                 self.set(rel.keyb, entity.primaryKey())
 
         pk = klass.pk
         if not empty(self.isDirty):
-            self.beforeSave()
+            await self.beforeSave()
 
-            id = self.get(pk)
+            id = self.primaryKey()
             if not DialectORM.emptykey(id) and not options['force']:
                 # update
                 self.sql().clear().Update(
@@ -1390,14 +1406,14 @@ class DialectORM(DialectORMEntity):
                 )
 
 
-            res = self.db().query(str(self.sql()))
+            res = await self.db().query(str(self.sql()))
             if DialectORM.emptykey(id): self.set(pk, [res['insertId']] if isinstance(pk, (list,tuple)) else res['insertId'])
             res = res['affectedRows']
             self.isDirty = {}
 
-            self.afterSave(res)
+            await self.afterSave(res)
 
-        id = self.get(pk)
+        id = self.primaryKey()
         if not DialectORM.emptykey(id):
             for field in withRelated:
                 field = str(field)
@@ -1412,14 +1428,14 @@ class DialectORM(DialectORMEntity):
                                     entity.set(rel.keyb, id)
                         for entity in rel.data:
                             if isinstance(entity, cls):
-                                entity.save()
+                                await entity.save()
                     else:
                         entity = rel.data
                         if 'hasone' == rel.type:
                             if isinstance(entity, cls):
                                 entity.set(rel.keyb, id)
                         if isinstance(entity, cls):
-                            entity.save()
+                            await entity.save()
 
                     if 'belongstomany' == rel.type:
                         jtbl = DialectORM.tbl(rel.ab)
@@ -1438,7 +1454,7 @@ class DialectORM(DialectORMEntity):
                             conditions[DialectORM.strkey(rel.keyb)] = {'or':[DialectORM.key(rel.keyb, id, {}) for id in eids]}
                         else:
                             conditions[rel.keyb] = {'in':eids}
-                        exists = list(map(lambda v: DialectORM.strkey(list(map(lambda k: v[k], array(rel.keyb)))), [] if empty(eids) else self.db().get(
+                        exists = list(map(lambda v: DialectORM.strkey(list(map(lambda k: v[k], array(rel.keyb)))), [] if empty(eids) else await self.db().get(
                             self.sql().clear().Select(
                                 rel.keyb
                             ).From(
@@ -1459,7 +1475,7 @@ class DialectORM(DialectORMEntity):
                                 values.append(array(eid) + array(id))
 
                         if not empty(values):
-                            self.db().query(
+                            await self.db().query(
                                 self.sql().clear().Insert(
                                     jtbl, array(rel.keyb) + array(rel.keya)
                                 ).Values(
@@ -1469,10 +1485,10 @@ class DialectORM(DialectORMEntity):
 
 
         self.sql().clear()
-        if self.eav: self.eav.entity(self).save()
+        if self.eav: await self.eav.entity(self).save()
         return res
 
-    def delete(self, opts = dict()):
+    async def delete(self, opts = dict()):
         options = {
             'withRelated' : False
         }
@@ -1483,12 +1499,12 @@ class DialectORM(DialectORMEntity):
         klass = self.__class__
         if isinstance(self.data, dict):
             pk = klass.pk
-            id = self.get(pk)
+            id = self.primaryKey()
             if not DialectORM.emptykey(id):
                 # delete
                 #if self.eav:
-                #    self.eav.entity(self).delete()
-                res = klass.deleteAll({
+                #    await self.eav.entity(self).delete()
+                res = await klass.deleteAll({
                     'conditions' : DialectORM.key(pk, id, {}),
                     'withRelated' : options['withRelated']
                 })
@@ -1506,15 +1522,15 @@ class IDialectORMNoSql(abc.ABC):
     @abc.abstractmethod
     def supportsConditionalQueries(self): raise NotImplementedError
     @abc.abstractmethod
-    def insert(self, collection, key, data): raise NotImplementedError
+    async def insert(self, collection, key, data): raise NotImplementedError
     @abc.abstractmethod
-    def update(self, collection, key, data): raise NotImplementedError
+    async def update(self, collection, key, data): raise NotImplementedError
     @abc.abstractmethod
-    def delete(self, collection, key): raise NotImplementedError
+    async def delete(self, collection, key): raise NotImplementedError
     @abc.abstractmethod
-    def find(self, collection, key): raise NotImplementedError
+    async def find(self, collection, key): raise NotImplementedError
     @abc.abstractmethod
-    def findAll(self, collection, conditions): raise NotImplementedError
+    async def findAll(self, collection, conditions): raise NotImplementedError
 
 class DialectNoSqlException(Exception):
     pass
@@ -1543,14 +1559,14 @@ class DialectNoSql(DialectORMEntity):
         return DialectNoSql.strh
 
     @classmethod
-    def fetchByPk(klass, id, default = None):
-        entity = DialectNoSql.NoSqlHandler().find(klass.collection, DialectNoSql.key(klass.pk, id) if isinstance(klass.pk, (list,tuple)) else id)
+    async def fetchByPk(klass, id, default = None):
+        entity = await DialectNoSql.NoSqlHandler().find(klass.collection, DialectNoSql.key(klass.pk, id) if isinstance(klass.pk, (list,tuple)) else id)
         return klass(entity[0] if isinstance(entity, list) else entity) if not empty(entity) else default
 
     @classmethod
-    def fetchAll(klass, conditions = dict(), default = list()):
+    async def fetchAll(klass, conditions = dict(), default = list()):
         if DialectNoSql.NoSqlHandler().supportsConditionalQueries():
-            entities = DialectNoSql.NoSqlHandler().findAll(klass.collection, conditions)
+            entities = await DialectNoSql.NoSqlHandler().findAll(klass.collection, conditions)
             if empty(entities): return default
             for i in range(len(entities)):
                 entities[i] = klass(entities[i])
@@ -1568,9 +1584,9 @@ class DialectNoSql(DialectORMEntity):
         if not self._str: self._str = DialectNoSql.NoSqlHandler()
         return self._str
 
-    def get(self, field, default = None, opts = dict()):
+    async def get(self, field, default = None, opts = dict()):
         if isinstance(field, (list,tuple)):
-            return [self.get(f, default[i] if isinstance(default, (list,tuple)) else default, opts) for i, f in enumerate(field)]
+            return [await self.get(f, default[i] if isinstance(default, (list,tuple)) else default, opts) for i, f in enumerate(field)]
 
         field = str(field)
         klass = self.__class__
@@ -1679,7 +1695,7 @@ class DialectNoSql(DialectORMEntity):
             a[field] = self.data[field]
         return a
 
-    def save(self, opts = dict()):
+    async def save(self, opts = dict()):
         klass = self.__class__
         options = {
             'update' : False
@@ -1690,7 +1706,7 @@ class DialectNoSql(DialectORMEntity):
 
         if not empty(self.isDirty):
             pk = klass.pk
-            id = self.get(pk)
+            id = self.primaryKey()
             if DialectNoSql.emptykey(id):
                 raise DialectNoSql.Exception('Empty key in ' + klass.__name__ + '::save()')
 
@@ -1698,10 +1714,10 @@ class DialectNoSql(DialectORMEntity):
 
             if options['update']:
                 # update
-                res = self.storage().update(klass.collection, DialectNoSql.key(pk, id) if isinstance(pk, (list,tuple)) else id, self.toDict(self.storage().supportsPartialUpdates()))
+                res = await self.storage().update(klass.collection, DialectNoSql.key(pk, id) if isinstance(pk, (list,tuple)) else id, self.toDict(self.storage().supportsPartialUpdates()))
             else:
                 # insert
-                res = self.storage().insert(klass.collection, DialectNoSql.key(pk, id) if isinstance(pk, (list,tuple)) else id, self.toDict(False))
+                res = await self.storage().insert(klass.collection, DialectNoSql.key(pk, id) if isinstance(pk, (list,tuple)) else id, self.toDict(False))
 
 
             self.isDirty = {}
@@ -1710,7 +1726,7 @@ class DialectNoSql(DialectORMEntity):
 
         return res
 
-    def delete(self, opts = dict()):
+    async def delete(self, opts = dict()):
         klass = self.__class__
 
         options = {}
@@ -1720,10 +1736,10 @@ class DialectNoSql(DialectORMEntity):
 
         if isinstance(self.data, dict):
             pk = klass.pk
-            id = self.get(pk)
+            id = self.primaryKey()
             if not DialectNoSql.emptykey(id):
                 # delete
-                res = self.storage().delete(klass.collection, DialectNoSql.key(pk, id) if isinstance(pk, (list,tuple)) else id)
+                res = await self.storage().delete(klass.collection, DialectNoSql.key(pk, id) if isinstance(pk, (list,tuple)) else id)
             self.clear()
 
         return res
@@ -1847,16 +1863,22 @@ def createFunction(args, sourceCode, additional_symbols = dict()):
     return fct
 
 def import_module(name, path):
-    import imp
-    mod_fp = None
-    try:
-        mod_fp, mod_path, mod_desc  = imp.find_module(name, [path])
-        mod = getattr(imp.load_module(name, mod_fp, mod_path, mod_desc), name)
-    except ImportError as exc:
-        mod = None
-    finally:
-        if mod_fp: mod_fp.close()
-    return mod
+    #import imp
+    #mod_fp = None
+    #try:
+    #    mod_fp, mod_path, mod_desc  = imp.find_module(name, [path])
+    #    mod = getattr(imp.load_module(name, mod_fp, mod_path, mod_desc), name)
+    #except ImportError as exc:
+    #    mod = None
+    #finally:
+    #    if mod_fp: mod_fp.close()
+    #return mod
+    import importlib.util, sys
+    spec = importlib.util.spec_from_file_location(name, path+name+'.py')
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return getattr(mod, name)
 
 def eq(a, b):
     if isinstance(a, (list,tuple)) and isinstance(b, (list,tuple)):
