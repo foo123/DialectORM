@@ -65,7 +65,7 @@ abstract class DialectORMEntity
         else
         {
             return array_map(function($entity) use ($field) {
-                return $entity->_get($field);
+                return $entity->get_($field);
             }, $entities);
         }
     }
@@ -165,10 +165,10 @@ abstract class DialectORMEntity
 
     public function primaryKey($default = 0)
     {
-        return $this->_get(static::$pk, $default);
+        return $this->get_(static::$pk, $default);
     }
 
-    public function _get($field, $default = null)
+    public function get_($field, $default = null)
     {
         return $default;
     }
@@ -265,6 +265,7 @@ class DialectORMEAV
     public $isDirty = null;
     public $isDeleted = null;
     public $entitykey = null;
+    private $_loaded = false;
 
     public function __construct($tbl, $fk, $pk, $key, $val)
     {
@@ -277,12 +278,14 @@ class DialectORMEAV
         $this->isDirty = array();
         $this->isDeleted = array();
         $this->entitykey = null;
+        $this->_loaded = false;
     }
 
     public function populate($data)
     {
         if (is_array($data) && !empty($data))
         {
+            $is_from_db = true;
             foreach ($data as $entry)
             {
                 $entry = (array)$entry;
@@ -292,6 +295,7 @@ class DialectORMEAV
                 if (!isset($entry[$this->pk]) || DialectORM::emptykey($entry[$this->pk]))
                 {
                     $this->isDirty[$key] = true;
+                    $is_from_db = false;
                 }
                 if (isset($entry[$this->fk]) && !DialectORM::emptykey($entry[$this->fk]))
                 {
@@ -305,6 +309,7 @@ class DialectORMEAV
                     }
                 }
             }
+            if (!$this->_loaded) $this->_loaded = $is_from_db;
         }
         return $this;
     }
@@ -321,10 +326,11 @@ class DialectORMEAV
         $this->data = array();
         $this->isDirty = array();
         $this->isDeleted = array();
+        $this->_loaded = false;
         return $this;
     }
 
-    public function _get($key, $default = null)
+    public function get_($key, $default = null)
     {
         $key = (string)$key;
         return !empty($this->data[$key]) ? $this->data[$key] : $default;
@@ -336,9 +342,18 @@ class DialectORMEAV
         $key = (string)$key;
         if (!isset($this->data[$key]))
         {
-            // lazy load
-            $this->load(empty($this->data) ? null : array($key)); // initially load all
-            if (!isset($this->data[$key])) $this->data[$key] = false;
+            if (!$this->_loaded)
+            {
+                // lazy load
+                $this->_loaded = true;
+                $this->load(); // load all
+                //$this->load(empty($this->data) ? null : array($key)); // initially load all
+                if (!isset($this->data[$key])) $this->data[$key] = false;
+            }
+            else
+            {
+                $this->data[$key] = false;
+            }
         }
         $res = $this->data[$key];
         return false === $res ? $default : $res;
@@ -446,7 +461,7 @@ class DialectORMEAV
                     $id = isset($d[$pk]) ? $d[$pk] : null;
                     if (!is_null($id) && !DialectORM::emptykey($id))
                     {
-                        $v = $d[$val];
+                        $v = (string)$d[$val];
                         $upd = array();
                         $upd[$v] = array();
                         $upd[$v][$pk] = $id;
@@ -458,6 +473,41 @@ class DialectORMEAV
                     {
                         $insert[] = array_map(function($f) use ($d,$fk,$entitykey) {return $f===$fk ? $entitykey : (isset($d[$f]) ? $d[$f] : null);}, $fields);
                         unset($this->isDirty[$k]);
+                    }
+                }
+                if (!empty($insert))
+                {
+                    // find if already existing
+                    $conditions = array();
+                    $conditions[$fk] = $entitykey;
+                    $conditions[$key] = array('in'=>array_map(function($ins) {return $ins[2/*key*/];}, $insert));
+                    $existing = DialectORM::DBHandler()->get(
+                        DialectORM::SQLBuilder()->clear()
+                        ->Select('*')
+                        ->From(DialectORM::tbl($this->tbl))
+                        ->Where($conditions)
+                        ->sql()
+                    );
+                    if (!empty($existing))
+                    {
+                        $map = array();
+                        foreach ($insert as $entry) $map[(string)$entry[$key]] = $entry;
+                        foreach ($existing as $entry)
+                        {
+                            $k = (string)$entry[$key];
+                            if (strval($entry[$val]) !== strval($map[$k][3]))
+                            {
+                                $id = $entry[$pk];
+                                $v = (string)$entry[$val];
+                                $upd = array();
+                                $upd[$v] = array();
+                                $upd[$v][$pk] = $id;
+                                $update[] = $upd;
+                                $ids[] = $id;
+                            }
+                            unset($map[$k]);
+                        }
+                        $insert = array_values($map);
                     }
                 }
                 if (!empty($update))
@@ -840,7 +890,7 @@ class DialectORM extends DialectORMEntity
                         $map = array();
                         foreach ($rentities as $re)
                         {
-                            $map[DialectORM::strkey($re->_get($fk))] = $re;
+                            $map[DialectORM::strkey($re->get_($fk))] = $re;
                         }
                         foreach ($entities as $e)
                         {
@@ -903,7 +953,7 @@ class DialectORM extends DialectORMEntity
                         $map = array();
                         foreach ($rentities as $re)
                         {
-                            $fkv = DialectORM::strkey($re->_get($fk));
+                            $fkv = DialectORM::strkey($re->get_($fk));
                             if (!isset($map[$fkv])) $map[$fkv] = array($re);
                             else $map[$fkv][] = $re;
                         }
@@ -939,7 +989,7 @@ class DialectORM extends DialectORMEntity
                         }
                         foreach ($entities as $e)
                         {
-                            $fkv = DialectORM::strkey($e->_get($fk));
+                            $fkv = DialectORM::strkey($e->get_($fk));
                             $e->set($field, isset($map[$fkv]) ? $map[$fkv] : null, array('recurse'=>true,'merge'=>true));
                         }
                         break;
@@ -1194,6 +1244,27 @@ class DialectORM extends DialectORMEntity
         return $this->_sql;
     }
 
+    public function get_($field, $default = null)
+    {
+        if (is_array($field))
+        {
+            $self = $this;
+            return array_map(function($i) use ($self, $field, $default) {
+                return $self->get_($field[$i], is_array($default) ? $default[$i] : $default);
+            }, array_keys($field));
+        }
+
+        $field = (string)$field;
+
+        if (!is_array($this->data) || !array_key_exists($field, $this->data))
+        {
+            if (in_array($field, static::$fields)) return $default;
+            throw new DialectORMException('Undefined Field: "'.$field.'" in ' . get_class($this) . ' via get()', 1);
+        }
+
+        return $this->data[$field];
+    }
+
     public function get($field, $default = null, $options = array())
     {
         if (is_array($field))
@@ -1215,27 +1286,6 @@ class DialectORM extends DialectORMEntity
             if (in_array($field, static::$fields)) return $default;
             if ($this->eav) return $this->eav->get($field, $default);
             throw new DialectORMException('Undefined Field: "'.$field.'" in ' . get_class($this) . ' via get()', 1);
-        }
-
-        return $this->data[$field];
-    }
-
-    public function _get($field, $default = null)
-    {
-        if (is_array($field))
-        {
-            $self = $this;
-            return array_map(function($i) use ($self, $field, $default) {
-                return $self->_get($field[$i], is_array($default) ? $default[$i] : $default);
-            }, array_keys($field));
-        }
-
-        $field = (string)$field;
-
-        if (!is_array($this->data) || !array_key_exists($field, $this->data))
-        {
-            if (in_array($field, static::$fields)) return $default;
-            throw new DialectORMException('Undefined Field: "'.$field.'" in ' . get_class($this) . ' via _get()', 1);
         }
 
         return $this->data[$field];
@@ -1312,7 +1362,7 @@ class DialectORM extends DialectORMEntity
                         break;
                     case 'belongsto':
                         $class = $rel->b;
-                        $rel->data = $class::fetchByPk($this->_get($rel->keyb), null);
+                        $rel->data = $class::fetchByPk($this->get_($rel->keyb), null);
                         if (!empty($rel->data) && ($mirrorRel = $this->_getMirrorRel($rel)))
                         {
                             $entity = $rel->data;
@@ -1755,7 +1805,7 @@ class DialectORM extends DialectORMEntity
             else
             {
                 $hydrateFromDB = false;
-                if (!$this->has($field))
+                if (!$this->data || !array_key_exists($field, $this->data))
                     $this->set($field, null);
             }
         }
@@ -1772,7 +1822,7 @@ class DialectORM extends DialectORMEntity
         foreach (static::$fields as $field)
         {
             if ($diff && !isset($this->isDirty[$field])) continue;
-            $a[$field] = $this->_get($field);
+            $a[$field] = $this->get_($field);
         }
         if ($deep && !$diff)
         {

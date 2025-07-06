@@ -6,7 +6,7 @@
 #   https://github.com/foo123/DialectORM
 ##
 
-import re, time, abc, inspect, functools, asyncio
+import re, time, abc, inspect, functools
 #import asyncio
 from collections import OrderedDict
 
@@ -52,7 +52,7 @@ class DialectORMEntity:
         if '' == field:
             return list(map(lambda entity: entity.primaryKey(), entities))
         else:
-            return list(map(lambda entity: entity._get(field), entities))
+            return list(map(lambda entity: entity.get_(field), entities))
 
     @classmethod
     def sorter(klass, args = list()):
@@ -137,9 +137,9 @@ class DialectORMEntity:
 
     def primaryKey(self, default = 0):
         klass = self.__class__
-        return self._get(klass.pk, default)
+        return self.get_(klass.pk, default)
 
-    def _get(self, field, default = None):
+    def get_(self, field, default = None):
         return default
 
     def get(self, field, default = None, opts = dict()):
@@ -179,6 +179,10 @@ class IDialectORMDb(abc.ABC):
     def query(self, sql): raise NotImplementedError
     @abc.abstractmethod
     def get(self, sql): raise NotImplementedError
+    #@abc.abstractmethod
+    #async def async_query(self, sql): raise NotImplementedError
+    #@abc.abstractmethod
+    #async def async_get(self, sql): raise NotImplementedError
 
 class DialectORMException(Exception):
     pass
@@ -206,20 +210,24 @@ class DialectORMEAV:
         self.isDirty = {}
         self.isDeleted = {}
         self.entitykey = None
+        self._loaded = False
 
     def populate(self, data):
         if isinstance(data, list) and len(data):
+            is_from_db = True
             for entry in data:
                 if (not entry) or (self.key not in entry): continue
                 key = str(entry[self.key])
                 self.data[key] = entry
                 if (self.pk not in entry) or DialectORM.emptykey(entry[self.pk]):
                     self.isDirty[key] = True
+                    is_from_db = False
                 if (self.fk in entry) and (not DialectORM.emptykey(entry[self.fk])):
                     if empty(self.entitykey):
                         self.entitykey = entry[self.fk]
                     elif str(self.entitykey) != str(entry[self.fk]):
                         raise DialectORM.Exception('DialectORMEAV different EntityKey in data from the same entity')
+            if not self._loaded: self._loaded = is_from_db
         return self
 
     def entity(self, entitykey = None):
@@ -231,9 +239,10 @@ class DialectORMEAV:
         self.data = {}
         self.isDirty = {}
         self.isDeleted = {}
+        self._loaded = False
         return self
 
-    def _get(self, key, default = None):
+    def get_(self, key, default = None):
         key = str(key)
         self.data[key] if (key in self.data) and self.data[key] else default
 
@@ -241,9 +250,14 @@ class DialectORMEAV:
         res = False
         key = str(key)
         if key not in self.data:
-            # lazy load
-            self.load(None if empty(self.data) else [key]) # initially load all
-            if key not in self.data: self.data[key] = False
+            if not self._loaded:
+                # lazy load
+                self._loaded = True
+                self.load() # load all
+                #self.load(None if empty(self.data) else [key]) # initially load all
+                if key not in self.data: self.data[key] = False
+            else:
+                self.data[key] = False
         res = self.data[key]
         return default if res is False else res
 
@@ -321,6 +335,29 @@ class DialectORMEAV:
                         insert.append(list(map(lambda f: entitykey if f==fk else (d[f] if f in d else None), fields)))
                         del self.isDirty[k]
 
+                if len(insert):
+                    # find if already existing
+                    conditions = {}
+                    conditions[fk] = entitykey
+                    conditions[key] = {'in':list(map(lambda ins: ins[2], insert))} #key
+                    existing = DialectORM.DBHandler().get(
+                        DialectORM.SQLBuilder().clear().Select('*').From(DialectORM.tbl(self.tbl)).Where(conditions).sql()
+                    )
+                    if existing and len(existing):
+                        mapp = {}
+                        for entry in insert: mapp[str(entry[key])] = entry
+                        for entry in existing:
+                            k = str(entry[key])
+                            if str(entry[val]) != str(mapp[k][3]):
+                                id = entry[pk]
+                                v = str(entry[val])
+                                upd = {}
+                                upd[v] = {}
+                                upd[v][pk] = id
+                                update.append(upd)
+                                ids.append(id)
+                            del mapp[k]
+                        insert = list(mapp.values())
                 if len(update):
                     # update efficiently
                     upd = {}
@@ -609,7 +646,7 @@ class DialectORM(DialectORMEntity):
                     })
                     mapp = {}
                     for re in rentities:
-                        mapp[DialectORM.strkey(re._get(fk))] = re
+                        mapp[DialectORM.strkey(re.get_(fk))] = re
                     for e in entities:
                         kv = str(e.primaryKey())
                         e.set(field, mapp[kv] if kv in mapp else None)
@@ -664,7 +701,7 @@ class DialectORM(DialectORMEntity):
 
                     mapp = {}
                     for re in rentities:
-                        fkv = DialectORM.strkey(re.get(fk))
+                        fkv = DialectORM.strkey(re.get_(fk))
                         if fkv not in mapp: mapp[fkv] = [re]
                         else: mapp[fkv].append(re)
                     for e in entities:
@@ -690,7 +727,7 @@ class DialectORM(DialectORMEntity):
                     for re in rentities:
                         mapp[DialectORM.strkey(re.primaryKey())] = re
                     for e in entities:
-                        fkv = DialectORM.strkey(e._get(fk))
+                        fkv = DialectORM.strkey(e.get_(fk))
                         e.set(field, mapp[fkv] if fkv in mapp else None, {'recurse':True,'merge':True})
 
                 elif 'belongstomany' == type:
@@ -876,6 +913,18 @@ class DialectORM(DialectORMEntity):
         if not self._sql: self._sql = DialectORM.SQLBuilder()
         return self._sql
 
+    def get_(self, field, default = None):
+        if isinstance(field, (list,tuple)):
+            return [self.get_(f, default[i] if isinstance(default, (list,tuple)) else default) for i, f in enumerate(field)]
+
+        field = str(field)
+        klass = self.__class__
+        if (not isinstance(self.data, dict)) or (field not in self.data):
+            if field in klass.fields: return default
+            raise DialectORM.Exception('Undefined Field: "' + field + '" in ' + klass.__name__ + ' via get()')
+
+        return self.data[field]
+
     def get(self, field, default = None, opts = dict()):
         if isinstance(field, (list,tuple)):
             return [self.get(f, default[i] if isinstance(default, (list,tuple)) else default, opts) for i, f in enumerate(field)]
@@ -887,18 +936,6 @@ class DialectORM(DialectORMEntity):
         if (not isinstance(self.data, dict)) or (field not in self.data):
             if field in klass.fields: return default
             if self.eav: return self.eav.get(field, default)
-            raise DialectORM.Exception('Undefined Field: "' + field + '" in ' + klass.__name__ + ' via get()')
-
-        return self.data[field]
-
-    def _get(self, field, default = None):
-        if isinstance(field, (list,tuple)):
-            return [self._get(f, default[i] if isinstance(default, (list,tuple)) else default) for i, f in enumerate(field)]
-
-        field = str(field)
-        klass = self.__class__
-        if (not isinstance(self.data, dict)) or (field not in self.data):
-            if field in klass.fields: return default
             raise DialectORM.Exception('Undefined Field: "' + field + '" in ' + klass.__name__ + ' via get()')
 
         return self.data[field]
@@ -962,7 +999,7 @@ class DialectORM(DialectORMEntity):
                                 entity.set(mirrorRel['field'], self, {'recurse':False})
                 elif 'belongsto' == rel.type:
                     cls = rel.b
-                    rel.data = cls.fetchByPk(self.get(rel.keyb), None)
+                    rel.data = cls.fetchByPk(self.get_(rel.keyb), None)
                     if rel.data:
                         mirrorRel = self._getMirrorRel(rel)
                         if mirrorRel:
@@ -1322,7 +1359,7 @@ class DialectORM(DialectORMEntity):
                 self.set(field, data[field])
             else:
                 hydrateFromDB = False
-                if not self.has(field):
+                if (not self.data) or (field not in self.data):
                     self.set(field, None)
         # populated from DB hydration, clear dirty flags
         if hydrateFromDB: self.isDirty = {}
@@ -1334,7 +1371,7 @@ class DialectORM(DialectORMEntity):
         a = {}
         for field in klass.fields:
             if diff and (field not in self.isDirty): continue
-            a[field] = self._get(field)
+            a[field] = self.get_(field)
         if deep and not diff:
             if self.eav:
                 val_key = klass.extra_fields[4]
