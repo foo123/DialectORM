@@ -179,10 +179,6 @@ class IDialectORMDb(abc.ABC):
     def query(self, sql): raise NotImplementedError
     @abc.abstractmethod
     def get(self, sql): raise NotImplementedError
-    #@abc.abstractmethod
-    #async def async_query(self, sql): raise NotImplementedError
-    #@abc.abstractmethod
-    #async def async_get(self, sql): raise NotImplementedError
 
 class DialectORMException(Exception):
     pass
