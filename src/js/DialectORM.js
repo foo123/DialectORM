@@ -345,7 +345,7 @@ class DialectORMEAV
     get_(key, default_ = null)
     {
         key = String(key);
-        return this.data[key] ? this.data[key] : default_;
+        return this.data[key] && (null != this.data[key][this.val]) ? this.data[key][this.val] : default_;
     }
 
     async get(key, default_ = null)
@@ -368,7 +368,7 @@ class DialectORMEAV
             }
         }
         res = this.data[key];
-        return false === res ? default_ : res;
+        return false === res || (null == res[this.val]) ? default_ : res[this.val];
     }
 
     set(key, val)
@@ -464,7 +464,7 @@ class DialectORMEAV
                 fields = [pk, fk, key, val];
                 entitykey = DialectORM.emptykey(this.entitykey) ? null : this.entitykey;
                 ids = [];
-                update = [];
+                update = {};
                 insert = [];
                 for (let i=0,kl=keys.length; i<kl; ++i)
                 {
@@ -475,10 +475,13 @@ class DialectORMEAV
                     if ((null != id) && !DialectORM.emptykey(id))
                     {
                         v = String(d[val]);
+                        if (null == update[v])
+                        {
+                            update[v] = {'_':{'or':[]}};
+                        }
                         upd = {};
-                        upd[v] = {};
-                        upd[v][pk] = id;
-                        update.push(upd);
+                        upd[pk] = id;
+                        update[v]['_']['or'].push(upd);
                         ids.push(id);
                         delete this.isDirty[k];
                     }
@@ -513,10 +516,13 @@ class DialectORMEAV
                             {
                                 id = entry[pk];
                                 v = String(entry[val]);
+                                if (null == update[v])
+                                {
+                                    update[v] = {'_':{'or':[]}};
+                                }
                                 upd = {};
-                                upd[v] = {};
-                                upd[v][pk] = id;
-                                update.push(upd);
+                                upd[pk] = id;
+                                update[v]['_']['or'].push(upd);
                                 ids.push(id);
                             }
                             delete mapp[k];
@@ -524,7 +530,7 @@ class DialectORMEAV
                         insert = Object.keys(mapp).map(k => mapp[k]);
                     }
                 }
-                if (update.length)
+                if (Object.keys(update).length)
                 {
                     // update efficiently
                     upd = {};
@@ -1231,6 +1237,10 @@ class DialectORM extends DialectORMEntity
         field = String(field);
 
         let klass = this.constructor;
+        if (this.eav && !has(klass.fields, field))
+        {
+            return this.eav.get_(field, default_);
+        }
         if (!is_obj(this.data) || !has(this.data, field))
         {
             if (has(klass.fields, field)) return default_;
@@ -1254,10 +1264,13 @@ class DialectORM extends DialectORMEntity
         {
             return await this._getRelated(field, default_, options);
         }
+        if (this.eav && !has(klass.fields, field))
+        {
+            return await this.eav.get(field, default_);
+        }
         if (!is_obj(this.data) || !has(this.data, field))
         {
             if (has(klass.fields, field)) return default_;
-            if (this.eav) return await this.eav.get(field, default_);
             throw new DialectORM.Exception('Undefined Field: "' + field + '" in ' + klass.name + ' via get()');
         }
 
@@ -1897,9 +1910,9 @@ class DialectORM extends DialectORMEntity
                 let val_key = klass.extra_fields[4];
                 for (let field in this.eav.data)
                 {
-                    if (!has(this.eav.data, field)) continue;
+                    if (!has(this.eav.data, field) || !this.eav.data[field]) continue;
                     //if (diff && !has(this.eav.isDirty, field)) continue;
-                    a[field] = this.eav.data[field][val_key];
+                    a[field] = null != this.eav.data[field][val_key] ? this.eav.data[field][val_key] : null;
                 }
             }
             stack.push(klass);

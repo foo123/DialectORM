@@ -157,6 +157,15 @@ def test():
         post.setAuthors([User({'name':'a py user'})])
         post.setStatus(PostStatus({'status':'approved','type':'article'}))
         post.save({'withRelated':True})
+    else:
+        val = post.getCustomField3()
+        if 'custom value 3'==val:
+            post.setCustomField3('custom value 33')
+            post.save({'withRelated':True})
+        elif 'custom value 33'==val:
+            post.setCustomField3('custom value 3')
+            post.save({'withRelated':True})
+
     output(post)
 
     print('Posts:')
@@ -164,7 +173,10 @@ def test():
 
     print('Posts:')
     output(Post.fetchAll({
-        'conditions' : {'custom_field3' : 'custom value 3'},
+        'conditions' : {'condition' : {'or' : [
+            {'custom_field3' : 'custom value 3'},
+            {'custom_field3' : 'custom value 33'}
+        ]}},
         'withRelated' : ['status', 'comments', 'authors'],
         'related' : {
             'authors' : {'conditions':{'clause':{'or':[

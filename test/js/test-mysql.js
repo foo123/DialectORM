@@ -166,6 +166,20 @@ async function test()
         post.setStatus(new PostStatus({'status':'approved','type':'article'}));
         await post.save({'withRelated':true});
     }
+    else
+    {
+        switch (await post.getCustomField2())
+        {
+            case 'custom value 2':
+            post.setCustomField2('custom value 22');
+            await post.save({'withRelated':true});
+            break;
+            case 'custom value 22':
+            post.setCustomField2('custom value 2');
+            await post.save({'withRelated':true});
+            break;
+        }
+    }
     output(post);
 
     print('Posts:');
@@ -173,7 +187,10 @@ async function test()
 
     print('Posts:');
     output(await Post.fetchAll({
-        'conditions' : {'custom_field2' : 'custom value 2'},
+        'conditions' : {'condition' : {'or' : [
+            {'custom_field2' : 'custom value 2'},
+            {'custom_field2' : 'custom value 22'}
+        ]}},
         'withRelated' : ['status', 'comments', 'authors'],
         'related' : {
             'authors' : {'conditions':{'clause':{'or':[

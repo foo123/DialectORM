@@ -240,7 +240,7 @@ class DialectORMEAV:
 
     def get_(self, key, default = None):
         key = str(key)
-        self.data[key] if (key in self.data) and self.data[key] else default
+        self.data[key][self.val] if (key in self.data) and self.data[key] and (self.val in self.data[key]) and (self.data[key][self.val] is not None) else default
 
     def get(self, key, default = None):
         res = False
@@ -255,7 +255,7 @@ class DialectORMEAV:
             else:
                 self.data[key] = False
         res = self.data[key]
-        return default if res is False else res
+        return default if (res is False) or (self.val not in res) or (res[self.val] is None) else res[self.val]
 
     def set(self, key, val):
         key = str(key)
@@ -312,7 +312,7 @@ class DialectORMEAV:
                 fields = [pk, fk, key, val]
                 entitykey = None if DialectORM.emptykey(self.entitykey) else self.entitykey
                 ids = []
-                update = []
+                update = {}
                 insert = []
                 for k in keys:
                     k = str(k);
@@ -321,10 +321,11 @@ class DialectORMEAV:
                     id = d[pk] if (pk in d) else None
                     if (id is not None) and not DialectORM.emptykey(id):
                         v = str(d[val])
+                        if v not in update:
+                            update[v] = {'_':{'or':[]}}
                         upd = {}
-                        upd[v] = {}
-                        upd[v][pk] = id
-                        update.append(upd)
+                        upd[pk] = id;
+                        update[v]['_']['or'].append(upd)
                         ids.append(id)
                         del self.isDirty[k]
                     elif not empty(entitykey):
@@ -347,10 +348,11 @@ class DialectORMEAV:
                             if str(entry[val]) != str(mapp[k][3]):
                                 id = entry[pk]
                                 v = str(entry[val])
+                                if v not in update:
+                                    update[v] = {'_':{'or':[]}}
                                 upd = {}
-                                upd[v] = {}
-                                upd[v][pk] = id
-                                update.append(upd)
+                                upd[pk] = id;
+                                update[v]['_']['or'].append(upd)
                                 ids.append(id)
                             del mapp[k]
                         insert = list(mapp.values())
@@ -915,6 +917,8 @@ class DialectORM(DialectORMEntity):
 
         field = str(field)
         klass = self.__class__
+        if self.eav and (field not in klass.fields):
+            return self.eav.get_(field, default)
         if (not isinstance(self.data, dict)) or (field not in self.data):
             if field in klass.fields: return default
             raise DialectORM.Exception('Undefined Field: "' + field + '" in ' + klass.__name__ + ' via get()')
@@ -929,9 +933,10 @@ class DialectORM(DialectORMEntity):
         klass = self.__class__
         if field in klass.relationships:
             return self._getRelated(field, default, opts)
+        if self.eav and (field not in klass.fields):
+            return self.eav.get(field, default)
         if (not isinstance(self.data, dict)) or (field not in self.data):
             if field in klass.fields: return default
-            if self.eav: return self.eav.get(field, default)
             raise DialectORM.Exception('Undefined Field: "' + field + '" in ' + klass.__name__ + ' via get()')
 
         return self.data[field]
@@ -1373,7 +1378,7 @@ class DialectORM(DialectORMEntity):
                 val_key = klass.extra_fields[4]
                 for field in self.eav.data:
                     #if diff and (field not in self.eav.isDirty): continue
-                    a[field] = self.eav.data[field][val_key]
+                    a[field] = self.eav.data[field][val_key] if (self.eav.data[field]) and (val_key in self.eav.data[field]) and (self.eav.data[field][val_key] is not None) else None
             stack.append(klass)
             for field in klass.relationships:
                 if (field not in self.relations) or empty(self.relations[field].data): continue

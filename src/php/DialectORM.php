@@ -333,7 +333,7 @@ class DialectORMEAV
     public function get_($key, $default = null)
     {
         $key = (string)$key;
-        return !empty($this->data[$key]) ? $this->data[$key] : $default;
+        return !empty($this->data[$key]) && isset($this->data[$key][$this->val]) ? $this->data[$key][$this->val] : $default;
     }
 
     public function get($key, $default = null)
@@ -356,7 +356,7 @@ class DialectORMEAV
             }
         }
         $res = $this->data[$key];
-        return false === $res ? $default : $res;
+        return false === $res || !isset($res[$this->val]) ? $default : $res[$this->val];
     }
 
     public function set($key, $val)
@@ -462,10 +462,13 @@ class DialectORMEAV
                     if (!is_null($id) && !DialectORM::emptykey($id))
                     {
                         $v = (string)$d[$val];
+                        if (!isset($update[$v]))
+                        {
+                            $update[$v] = array('_'=>array('or'=>array()));
+                        }
                         $upd = array();
-                        $upd[$v] = array();
-                        $upd[$v][$pk] = $id;
-                        $update[] = $upd;
+                        $upd[$pk] = $id;
+                        $update[$v]['_']['or'][] = $upd;
                         $ids[] = $id;
                         unset($this->isDirty[$k]);
                     }
@@ -499,10 +502,13 @@ class DialectORMEAV
                             {
                                 $id = $entry[$pk];
                                 $v = (string)$entry[$val];
+                                if (!isset($update[$v]))
+                                {
+                                    $update[$v] = array('_'=>array('or'=>array()));
+                                }
                                 $upd = array();
-                                $upd[$v] = array();
-                                $upd[$v][$pk] = $id;
-                                $update[] = $upd;
+                                $upd[$pk] = $id;
+                                $update[$v]['_']['or'][] = $upd;
                                 $ids[] = $id;
                             }
                             unset($map[$k]);
@@ -755,7 +761,7 @@ class DialectORM extends DialectORMEntity
                 }
                 else
                 {
-                    $join_alias = DialectORM::tbl($extra_fields[0]).$jj[$field];
+                    $join_alias = DialectORM::tbl($extra_fields[0]).strval($jj[$field]);
                 }
                 $cases1 = array();
                 $cases1[$join_alias.'.'.$eav_key] = $field;
@@ -1256,6 +1262,10 @@ class DialectORM extends DialectORMEntity
 
         $field = (string)$field;
 
+        if ($this->eav && !in_array($field, static::$fields))
+        {
+            return $this->eav->get_($field, $default);
+        }
         if (!is_array($this->data) || !array_key_exists($field, $this->data))
         {
             if (in_array($field, static::$fields)) return $default;
@@ -1281,10 +1291,13 @@ class DialectORM extends DialectORMEntity
         {
             return $this->_getRelated($field, $default, $options);
         }
+        if ($this->eav && !in_array($field, static::$fields))
+        {
+            return $this->eav->get($field, $default);
+        }
         if (!is_array($this->data) || !array_key_exists($field, $this->data))
         {
             if (in_array($field, static::$fields)) return $default;
-            if ($this->eav) return $this->eav->get($field, $default);
             throw new DialectORMException('Undefined Field: "'.$field.'" in ' . get_class($this) . ' via get()', 1);
         }
 
@@ -1832,7 +1845,7 @@ class DialectORM extends DialectORMEntity
                 foreach ($this->eav->data as $field => $entry)
                 {
                     //if ($diff && !isset($this->eav->isDirty[$field])) continue;
-                    $a[$field] = $entry[$val_key];
+                    $a[$field] = isset($entry[$val_key]) ? $entry[$val_key] : null;
                 }
             }
             array_push($stack, $class);

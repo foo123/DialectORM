@@ -1,11 +1,11 @@
 # DialectORM
 
-Tiny, fast, super-simple but versatile **Object-Relational-Mapper (ORM)** **with Relationships and Entity-Attribute-Value** and **Object-NoSql-Mapper** for **PHP**, **Python**, **JavaScript**
+Super-simple, fast and versatile **Object-Relational-Mapper (ORM)** **with Relationships and Entity-Attribute-Value** and **Object-NoSql-Mapper** for PHP, Python, JavaScript
 
 
 ![DialectORM](/dialectorm.jpg)
 
-version **2.1.0 in progress**
+version **2.1.0**
 
 
 **see also:**
@@ -39,35 +39,19 @@ version **2.1.0 in progress**
 **Supports:**
 
 * **Relational Datastores**: MySql, MariaDB, Postgresql, Sql Server, Sqlite, easily extended to other Relational Stores via adding Dialect configuration
-* **NoSql / Key-Value DataStores**: Redis, Mongodb (example in progress), easily extended to other NoSql Stores via providing adapter
+* **NoSql / Key-Value DataStores**: Redis, easily extended to other NoSql Stores via providing adapter
 
 
 **example (see `/test` folder)**
 
 ```php
-define('DIR', dirname(__FILE__));
-include(DIR.'/../../src/php/DialectORM.php');
-include(DIR.'/PDODb.php');
-
-DialectORM::dependencies([
-    'Dialect' => DIR.'/Dialect.php',
-]);
-DialectORM::DBHandler(new PDODb([
-    'dsn' => 'mysql:host=localhost;dbname=dialectorm',
-    'user' => 'dialectorm',
-    'password' => 'dialectorm'
-], 'mysql'));
-
 class Post extends DialectORM
 {
     public static $table = 'posts';
-    public static $pk = 'id'; // primary and/or foreign keys can also be composite keys, define with an array of keys eg ['k1', 'k2']
+    public static $pk = ['id'];
     public static $fields = ['id', 'content'];
-    public static $relationships = [
-        'meta' => ['hasOne', 'PostMeta', 'post_id'], // primary and/or foreign keys can also be composite keys, define with an array of keys eg ['k1', 'k2']
-        'comments' => ['hasMany', 'Comment', 'post_id'], // primary and/or foreign keys can also be composite keys, define with an array of keys eg ['k1', 'k2']
-        'authors' => ['belongsToMany', 'User', 'user_id', 'post_id', 'user_post'], // primary and/or foreign keys can also be composite keys, define with an array of keys eg ['k1', 'k2']
-    ];
+    public static $extra_fields = ['postmeta', 'post_id', 'id', 'key', 'value'];
+    public static $relationships = [];
 
     public function typeId($x)
     {
@@ -85,14 +69,12 @@ class Post extends DialectORM
     }
 }
 
-class PostMeta extends DialectORM
+class PostStatus extends DialectORM
 {
-    public static $table = 'postmeta';
-    public static $pk = 'id'; // primary and/or foreign keys can also be composite keys, define with an array of keys eg ['k1', 'k2']
+    public static $table = 'poststatus';
+    public static $pk = ['id'];
     public static $fields = ['id', 'status', 'type', 'post_id'];
-    public static $relationships = [
-        'post' => ['belongsTo', 'Post', 'post_id'] // primary and/or foreign keys can also be composite keys, define with an array of keys eg ['k1', 'k2']
-    ];
+    public static $relationships = [];
 
     public function typeId($x)
     {
@@ -128,11 +110,9 @@ class PostMeta extends DialectORM
 class Comment extends DialectORM
 {
     public static $table = 'comments';
-    public static $pk = 'id'; // primary and/or foreign keys can also be composite keys, define with an array of keys eg ['k1', 'k2']
+    public static $pk = ['id'];
     public static $fields = ['id', 'content', 'post_id'];
-    public static $relationships = [
-        'post' => ['belongsTo', 'Post', 'post_id'], // primary and/or foreign keys can also be composite keys, define with an array of keys eg ['k1', 'k2']
-    ];
+    public static $relationships = [];
 
     public function typeId($x)
     {
@@ -158,11 +138,9 @@ class Comment extends DialectORM
 class User extends DialectORM
 {
     public static $table = 'users';
-    public static $pk = 'id'; // primary and/or foreign keys can also be composite keys, define with an array of keys eg ['k1', 'k2']
+    public static $pk = ['id'];
     public static $fields = ['id', 'name'];
-    public static $relationships = [
-        'posts' => ['belongsToMany', 'Post', 'post_id', 'user_id', 'user_post'], // primary and/or foreign keys can also be composite keys, define with an array of keys eg ['k1', 'k2']
-    ];
+    public static $relationships = [];
 
     public function typeId($x)
     {
@@ -180,29 +158,63 @@ class User extends DialectORM
     }
 }
 
-$post = new Post(['content'=>'another post..']);
-// alternative
-//$post = new Post(); $post->setContent('another post..');
+Post::$relationships = [
+    'status' => ['hasOne', 'PostStatus', ['post_id']],
+    'comments' => ['hasMany', 'Comment', ['post_id']],
+    'authors' => ['belongsToMany', 'User', ['user_id'], ['post_id'], 'user_post'],
+];
+PostStatus::$relationships = [
+    'post' => ['belongsTo', 'Post', ['post_id']]
+];
+Comment::$relationships = [
+    'post' => ['belongsTo', 'Post', ['post_id']],
+];
+User::$relationships = [
+    'posts' => ['belongsToMany', 'Post', ['post_id'], ['user_id'], 'user_post'],
+];
 
-$post->setComments([new Comment(['content'=>'another comment..'])]);
-$post->setComments([new Comment(['content'=>'still another comment..'])], ['merge'=>true]);
+function output($data)
+{
+    if (is_array($data))
+    {
+        echo json_encode(array_map(function($d){return $d->toArray(true);}, $data), JSON_PRETTY_PRINT) . PHP_EOL;
+    }
+    elseif ($data instanceof DialectORM)
+    {
+        echo json_encode($data->toArray(true), JSON_PRETTY_PRINT) . PHP_EOL;
+    }
+    else
+    {
+        echo ((string)$data) . PHP_EOL;
+    }
+}
 
-$post->setAuthors([new User(['name'=>'bar'])], ['merge'=>true]);
+output('Posts: ' . (string)Post::count());
+output('Users: ' . (string)User::count());
 
-// alternative
-//$user = new User(['name'=>'bar']);
-//$user->save();
-//$post->assocAuthors([$user]);
+$post = Post::fetchAll(['conditions' => ['content' => 'a php post..'],'single' => true]);
+if (empty($post))
+{
+    $post = new Post(['content'=>'a php post..']);
+    $post->setCustomField1('custom value 1'); // extra custom fields as Entity-Attribute-Value pattern
+    $post->setComments([new Comment(['content'=>'a php comment..'])]);
+    $post->setComments([new Comment(['content'=>'one more php comment..'])], ['merge'=>true]);
+    $post->setAuthors([new User(['name'=>'a php user'])]);
+    $post->setStatus(new PostStatus(['status'=>'approved','type'=>'article']));
+    $post->save(['withRelated'=>true]);
+}
+output($post);
 
-// to simply dissociate from a many-to-many relationship
-//$post->dissocAuthors([$user]);
-
-$post->save(['withRelated'=>['comments','authors']]);
-
-//$post->delete(['withRelated'=>true]);
-
-$count = Post::count(['conditions'=>[/*..*/]]);
-$posts = Post::fetchAll(['withRelated'=>['comments','authors']]); // eager load of relationships, no N+1 problem
-
-//foreach(Post::fetchAll() as $post) $post->getComments(); // lazy load of relationships, N+1 problem
+print('Posts:');
+output(Post::fetchAll([
+    'conditions' => ['custom_field1' => 'custom value 1'],
+    'withRelated' => ['status', 'comments', 'authors'],
+    'related' => [
+        'authors' => ['conditions'=>['clause'=>['or'=>[
+            ['name'=>['like'=>'foo']],
+            ['name'=>['like'=>'bar']]
+        ]]]],
+        'comments' => ['limit'=>1] // eager relationship loading with extra conditions, see `Dialect` lib on how to define conditions
+    ]
+]));
 ```

@@ -173,6 +173,20 @@ function test()
         $post->setStatus(new PostStatus(['status'=>'approved','type'=>'article']));
         $post->save(['withRelated'=>true]);
     }
+    else
+    {
+        switch ($post->getCustomField1())
+        {
+            case 'custom value 1':
+            $post->setCustomField1('custom value 11');
+            $post->save(['withRelated'=>true]);
+            break;
+            case 'custom value 11':
+            $post->setCustomField1('custom value 1');
+            $post->save(['withRelated'=>true]);
+            break;
+        }
+    }
     output($post);
 
     print('Posts:');
@@ -180,7 +194,10 @@ function test()
 
     print('Posts:');
     output(Post::fetchAll([
-        'conditions' => ['custom_field1' => 'custom value 1'],
+        'conditions' => ['condition' => ['or' => [
+            ['custom_field1' => 'custom value 1'],
+            ['custom_field1' => 'custom value 11']
+        ]]],
         'withRelated' => ['status', 'comments', 'authors'],
         'related' => [
             'authors' => ['conditions'=>['clause'=>['or'=>[
